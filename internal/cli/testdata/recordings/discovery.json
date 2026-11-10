@@ -1,0 +1,424 @@
+[
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select current_setting('server_version') as version,\n  current_setting('server_version_num')::int as versionnum,\n  version() as versionstring,\n  current_user as currentuser,\n  session_user as sessionuser,\n  current_database() as database,\n  (select e.extversion from pg_extension e where e.extname = 'pgaadauth') as pgaadauthversion",
+    "result": {
+      "columns": [
+        "version",
+        "versionnum",
+        "versionstring",
+        "currentuser",
+        "sessionuser",
+        "database",
+        "pgaadauthversion"
+      ],
+      "rows": [
+        [
+          "18.6",
+          180006,
+          "PostgreSQL 18.6 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 13.2.0, 64-bit",
+          "user1@example.com",
+          "user1@example.com",
+          "postgres",
+          "1.13"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select current_setting('server_version') as version,\n  current_setting('server_version_num')::int as versionnum,\n  version() as versionstring,\n  current_user as currentuser,\n  session_user as sessionuser,\n  current_database() as database,\n  (select e.extversion from pg_extension e where e.extname = 'pgaadauth') as pgaadauthversion",
+    "result": {
+      "columns": [
+        "version",
+        "versionnum",
+        "versionstring",
+        "currentuser",
+        "sessionuser",
+        "database",
+        "pgaadauthversion"
+      ],
+      "rows": [
+        [
+          "18.6",
+          180006,
+          "PostgreSQL 18.6 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 13.2.0, 64-bit",
+          "user1@example.com",
+          "user1@example.com",
+          "postgres",
+          "1.13"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select d.datname as name, pg_get_userbyid(d.datdba) as owner\nfrom pg_database d\nwhere not d.datistemplate\norder by d.datname",
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "azure_maintenance",
+          "azuresu"
+        ],
+        [
+          "azure_sys",
+          "azuresu"
+        ],
+        [
+          "postgres",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select t.rolname as name, t.principaltype as type, t.objectid, t.tenantid,\n  t.ismfa = 1 as ismfa, t.isadmin = 1 as isadmin\nfrom pg_catalog.pgaadauth_list_principals(false) t\nwhere (not $1::boolean or t.rolname <> current_user)\n  and not (t.rolname = any($2::text[]))\norder by t.rolname",
+    "args": [
+      false,
+      []
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "type",
+        "objectid",
+        "tenantid",
+        "ismfa",
+        "isadmin"
+      ],
+      "rows": [
+        [
+          "user1@example.com",
+          "user",
+          "ffffffff-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000002",
+          false,
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select t.rolname as name, t.principaltype as type, t.objectid, t.tenantid,\n  t.ismfa = 1 as ismfa, t.isadmin = 1 as isadmin\nfrom pg_catalog.pgaadauth_list_principals(false) t\nwhere (not $1::boolean or t.rolname <> current_user)\n  and not (t.rolname = any($2::text[]))\norder by t.rolname",
+    "args": [
+      true,
+      [
+        "azpgaad_test_nobody"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "type",
+        "objectid",
+        "tenantid",
+        "ismfa",
+        "isadmin"
+      ],
+      "rows": []
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as rolename,\n  (select array_agg(m.rolname::text order by m.rolname)\n   from pg_auth_members am join pg_roles m on m.oid = am.roleid\n   where am.member = r.oid) as memberof,\n  case when $2::text is null then null else\n    (select array_agg(p.p order by p.ord)\n     from unnest(array['CONNECT', 'CREATE', 'TEMPORARY']) with ordinality p(p, ord)\n     where has_database_privilege(r.oid, $2::text, p.p)) end as dbprivileges,\n  a.rolname as aadname, a.principaltype as aadtype, a.objectid as aadobjectid,\n  a.tenantid as aadtenantid, a.isadmin = 1 as aadisadmin\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere $1::boolean or (not starts_with(r.rolname, 'pg_') and not starts_with(r.rolname, 'azure') and r.rolname <> 'replication')\norder by r.rolname",
+    "args": [
+      true,
+      null
+    ],
+    "result": {
+      "columns": [
+        "rolename",
+        "memberof",
+        "dbprivileges",
+        "aadname",
+        "aadtype",
+        "aadobjectid",
+        "aadtenantid",
+        "aadisadmin"
+      ],
+      "rows": [
+        [
+          "azure_pg_admin",
+          [
+            "pg_checkpoint",
+            "pg_create_subscription",
+            "pg_maintain",
+            "pg_monitor",
+            "pg_read_all_data",
+            "pg_read_all_settings",
+            "pg_read_all_stats",
+            "pg_signal_autovacuum_worker",
+            "pg_signal_backend",
+            "pg_stat_scan_tables",
+            "pg_use_reserved_connections",
+            "pg_write_all_data"
+          ],
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "azuresu",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "user1@example.com",
+          [
+            "azure_pg_admin"
+          ],
+          null,
+          "user1@example.com",
+          "user",
+          "ffffffff-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000002",
+          true
+        ],
+        [
+          "pg_checkpoint",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_create_subscription",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_database_owner",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_execute_server_program",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_maintain",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_monitor",
+          [
+            "pg_read_all_settings",
+            "pg_read_all_stats",
+            "pg_stat_scan_tables"
+          ],
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_read_all_data",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_read_all_settings",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_read_all_stats",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_read_server_files",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_signal_autovacuum_worker",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_signal_backend",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_stat_scan_tables",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_use_reserved_connections",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_write_all_data",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "pg_write_server_files",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "replication",
+          [
+            "pg_use_reserved_connections"
+          ],
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ]
+      ]
+    }
+  }
+]

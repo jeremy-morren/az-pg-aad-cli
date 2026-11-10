@@ -1,0 +1,8 @@
+# Read-only commands against the server.
+server info --query "{major: major, minor: minor, pgaadauth: pgaadauthVersion, database: database}"
+server info --query currentUser -o tsv
+db list --query "[?name=='postgres']"
+schema list --database postgres
+principal list --query "length(@) > `0`"
+principal list --exclude-self --exclude-names '["azpgaad_test_nobody"]' --query "[?starts_with(name, 'azpgaad_test_')]"
+role list --all --query "[?roleName=='azure_pg_admin'].{name: roleName, aad: aad}"

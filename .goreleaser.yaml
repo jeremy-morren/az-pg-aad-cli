@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+#
+# Release build: cross-compiles every target and writes to dist/
+#   azpgaad_<os>_<arch>_<variant>/       the binaries (tools/release-build.sh copies them out as
+#                                         the unversioned azpgaad-<os>-<arch>[.exe] release assets)
+#   azpgaad_<version>_<os>_<arch>.tar.gz versioned tarballs (binary, LICENSE, README.md)
+#
+# GoReleaser is pinned in tools/go.mod and run with:
+#   tools/release-build.sh v1.2.3
+# which runs `go tool -modfile=tools/go.mod goreleaser release --snapshot --clean` with the
+# tag present locally (the release workflow builds before the real tag exists: it is created
+# when the draft release is published). Publishing is done by the workflow, not GoReleaser.
+#
+# Reproducible: the same commit and tag give bit-identical outputs on any host OS
+# (-trimpath, exact toolchain, commit time for every timestamp). CI checks this.
+version: 2
+project_name: azpgaad
+
+builds:
+  - id: azpgaad
+    main: ./cmd/azpgaad
+    binary: azpgaad
+    env:
+      - CGO_ENABLED=0
+      # Exactly this Go release, whatever Go runs GoReleaser (keep in step with the go
+      # line in go.mod). The go.mod line is only a minimum, so without this a newer
+      # local Go would produce different bytes.
+      - GOTOOLCHAIN=go1.27.3
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    goamd64: [v1]
+    goarm64: [v8.0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Tag }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: tarball
+    ids: [azpgaad]
+    formats: [tar.gz]
+    name_template: "azpgaad_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # Tar headers would otherwise take owner names/IDs from the build machine (empty on
+    # Windows, root or the CI user on Linux); fixed values keep the tarballs identical.
+    builds_info:
+      owner: root
+      group: root
+      mode: 0755
+      mtime: "{{ .CommitDate }}"
+    files:
+      - src: LICENSE
+        info:
+          owner: root
+          group: root
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
+      - src: README.md
+        info:
+          owner: root
+          group: root
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
+
+snapshot:
+  # Keep the real version (from GORELEASER_CURRENT_TAG) rather than a -SNAPSHOT suffix.
+  version_template: "{{ .Version }}"
+
+checksum:
+  disable: true # attestations cover integrity and provenance (see README)
+changelog:
+  disable: true
+release:
+  disable: true # the release-draft workflow creates the GitHub release

@@ -1,0 +1,221 @@
+! sql postgres: drop role if exists azpgaad_test_user
+
+! sql postgres: drop role if exists azpgaad_test_b1
+
+! sql postgres: drop role if exists azpgaad_test_plain
+
+$ azpgaad role create --name azpgaad_test_bad --oid 00000000-0000-0000-0000-000000000001 --type user
+exit 1
+--- stderr
+azpgaad: error: create "azpgaad_test_bad" (user 00000000-0000-0000-0000-000000000001): Cannot validate Microsoft Entra ID user "azpgaad_test_bad" with OID "00000000-0000-0000-0000-000000000001" because the OID isn't found in the tenant.
+Make sure it's correct and retry. (SQLSTATE 0LP01)
+
+$ azpgaad role create --name azpgaad_test_bad --oid aaaaaaaa-0000-0000-0000-000000000001 --type service
+exit 1
+--- stderr
+azpgaad: error: create "azpgaad_test_bad" (service aaaaaaaa-0000-0000-0000-000000000001): Incorrect object type provided for principal. Given object type: 'service', actual object type: 'user' (SQLSTATE XX000)
+
+$ azpgaad role create --name azpgaad_test_bad --oid 00000000-0000-0000-0000-000000000001 --type user --dry-run
+exit 1
+--- stderr
+azpgaad: error: create "azpgaad_test_bad" (user 00000000-0000-0000-0000-000000000001): Cannot validate Microsoft Entra ID user "azpgaad_test_bad" with OID "00000000-0000-0000-0000-000000000001" because the OID isn't found in the tenant.
+Make sure it's correct and retry. (SQLSTATE 0LP01)
+
+$ azpgaad principal list --query "[?starts_with(name, 'azpgaad_test_')].name"
+exit 0
+--- stdout
+[]
+
+$ azpgaad role create --name azpgaad_test_user --oid aaaaaaaa-0000-0000-0000-000000000001 --type user --dry-run
+exit 0
+--- stdout
+{
+  "dryRun": true,
+  "principals": [
+    {
+      "name": "azpgaad_test_user",
+      "oid": "aaaaaaaa-0000-0000-0000-000000000001",
+      "created": true
+    }
+  ]
+}
+
+$ azpgaad principal list --query "[?name=='azpgaad_test_user'].name"
+exit 0
+--- stdout
+[]
+
+$ azpgaad role create --name azpgaad_test_user --oid aaaaaaaa-0000-0000-0000-000000000001 --type user
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "principals": [
+    {
+      "name": "azpgaad_test_user",
+      "oid": "aaaaaaaa-0000-0000-0000-000000000001",
+      "created": true
+    }
+  ]
+}
+
+$ azpgaad role create --name azpgaad_test_user --oid aaaaaaaa-0000-0000-0000-000000000001 --type user
+exit 1
+--- stderr
+azpgaad: error: role "azpgaad_test_user" already exists (use --if-not-exists to skip it)
+
+$ azpgaad role create --name azpgaad_test_user --oid aaaaaaaa-0000-0000-0000-000000000001 --type user --if-not-exists
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "principals": [
+    {
+      "name": "azpgaad_test_user",
+      "oid": "aaaaaaaa-0000-0000-0000-000000000001",
+      "created": false
+    }
+  ]
+}
+
+$ azpgaad role create --name azpgaad_test_user --oid 00000000-0000-0000-0000-0000000000a2 --type user --if-not-exists
+exit 1
+--- stderr
+azpgaad: error: role "azpgaad_test_user" already exists with object ID aaaaaaaa-0000-0000-0000-000000000001, not 00000000-0000-0000-0000-0000000000a2
+
+$ azpgaad principal list --query "[?name=='azpgaad_test_user'].{name: name, type: type, isAdmin: isAdmin, isMfa: isMfa}"
+exit 0
+--- stdout
+[
+  {
+    "isAdmin": false,
+    "isMfa": false,
+    "name": "azpgaad_test_user",
+    "type": "user"
+  }
+]
+
+$ azpgaad role list --query "[?roleName=='azpgaad_test_user'].{roleName: roleName, memberOf: memberOf, aadType: aad.type}"
+exit 0
+--- stdout
+[
+  {
+    "aadType": "user",
+    "memberOf": null,
+    "roleName": "azpgaad_test_user"
+  }
+]
+
+$ azpgaad role create --principals '[{"name":"azpgaad_test_b1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user"},{"name":"azpgaad_test_b2","oid":"00000000-0000-0000-0000-000000000001","type":"user"}]'
+exit 1
+--- stderr
+azpgaad: error: create "azpgaad_test_b2" (user 00000000-0000-0000-0000-000000000001): Cannot validate Microsoft Entra ID user "azpgaad_test_b2" with OID "00000000-0000-0000-0000-000000000001" because the OID isn't found in the tenant.
+Make sure it's correct and retry. (SQLSTATE 0LP01)
+
+$ azpgaad principal list --query "[?starts_with(name, 'azpgaad_test_b')].name"
+exit 0
+--- stdout
+[]
+
+! sql postgres: create role azpgaad_test_plain nologin
+
+$ azpgaad role enable-oid --name azpgaad_test_plain --oid 00000000-0000-0000-0000-000000000003 --type user
+exit 1
+--- stderr
+azpgaad: error: SECURITY LABEL FOR "pgaadauth" ON ROLE "azpgaad_test_plain" IS 'aadauth,oid=00000000-0000-0000-0000-000000000003,type=user': Cannot validate Microsoft Entra ID user "azpgaad_test_plain" with OID "00000000-0000-0000-0000-000000000003" because the OID isn't found in the tenant.
+Make sure it's correct and retry. (SQLSTATE 0LP01)
+
+$ azpgaad role enable-oid --name azpgaad_test_plain --oid not-a-guid --type user
+exit 2
+--- stderr
+azpgaad: error: --oid: "not-a-guid" is not an object ID (GUID)
+
+$ azpgaad role enable-oid --name azpgaad_test_plain --oid aaaaaaaa-0000-0000-0000-000000000001 --type service --dry-run
+exit 1
+--- stderr
+azpgaad: error: SECURITY LABEL FOR "pgaadauth" ON ROLE "azpgaad_test_plain" IS 'aadauth,oid=aaaaaaaa-0000-0000-0000-000000000001,type=service': Incorrect object type provided for principal. Given object type: 'service', actual object type: 'user' (SQLSTATE XX000)
+
+$ azpgaad role enable-oid --name azpgaad_test_plain --oid aaaaaaaa-0000-0000-0000-000000000001 --type user --dry-run
+exit 0
+--- stdout
+{
+  "dryRun": true,
+  "database": "postgres",
+  "statements": [
+    "SECURITY LABEL FOR \"pgaadauth\" ON ROLE \"azpgaad_test_plain\" IS 'aadauth,oid=aaaaaaaa-0000-0000-0000-000000000001,type=user'"
+  ]
+}
+
+$ azpgaad role enable-oid --name azpgaad_test_plain --oid aaaaaaaa-0000-0000-0000-000000000001 --type user
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": [
+    "SECURITY LABEL FOR \"pgaadauth\" ON ROLE \"azpgaad_test_plain\" IS 'aadauth,oid=aaaaaaaa-0000-0000-0000-000000000001,type=user'"
+  ]
+}
+
+$ azpgaad principal list --query "[?name=='azpgaad_test_plain'].{name: name, type: type}"
+exit 0
+--- stdout
+[
+  {
+    "name": "azpgaad_test_plain",
+    "type": "user"
+  }
+]
+
+$ azpgaad role drop --oid 00000000-0000-0000-0000-0000000000ff --yes
+exit 1
+--- stderr
+azpgaad: error: no Microsoft Entra role has object ID 00000000-0000-0000-0000-0000000000ff (use --if-exists to ignore)
+
+$ azpgaad role drop --oid 00000000-0000-0000-0000-0000000000ff --if-exists --yes
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": []
+}
+
+$ azpgaad role drop --names '["azpgaad_test_user","azpgaad_test_plain"]' --yes
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": [
+    "DROP ROLE \"azpgaad_test_user\", \"azpgaad_test_plain\""
+  ]
+}
+
+$ azpgaad role drop --name azpgaad_test_user --yes
+exit 1
+--- stderr
+azpgaad: error: DROP ROLE "azpgaad_test_user": role "azpgaad_test_user" does not exist (SQLSTATE 42704)
+
+$ azpgaad role drop --name azpgaad_test_user --if-exists --yes
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": [
+    "DROP ROLE IF EXISTS \"azpgaad_test_user\""
+  ]
+}
+
+$ azpgaad principal list --query "[?starts_with(name, 'azpgaad_test_')].name"
+exit 0
+--- stdout
+[]
+
+! sql postgres: drop role if exists azpgaad_test_user
+
+! sql postgres: drop role if exists azpgaad_test_b1
+
+! sql postgres: drop role if exists azpgaad_test_plain
+

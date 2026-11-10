@@ -1,0 +1,32 @@
+# Normalise text files to LF in the repository.
+* text=auto
+
+# download.sh is served byte-for-byte by raw.githubusercontent.com and piped
+# into sh, so it must have LF line endings on every checkout.
+*.sh text eol=lf
+# download.ps1 must stay ASCII without a BOM (enforced in CI); either line
+# ending works for PowerShell.
+*.ps1 text
+# cmd.exe mis-parses labels/goto in LF-only batch files.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+# download.cmd is served byte-for-byte by raw.githubusercontent.com, which serves the
+# stored blob, so keep CRLF in the repository itself (not just on checkout).
+/download.cmd -text
+
+# Go sources and modules: gofmt uses LF.
+*.go text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf
+
+# LICENSE and README.md go into the release tarballs; fixed line endings keep
+# them (and so the tarballs) identical on Windows and Unix checkouts.
+LICENSE text eol=lf
+*.md text eol=lf
+version.txt text eol=lf
+
+# Recorded test data and golden output are compared byte-for-byte.
+**/testdata/** -text
+
+*.yml text eol=lf
+*.yaml text eol=lf

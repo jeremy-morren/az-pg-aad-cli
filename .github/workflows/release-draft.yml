@@ -1,0 +1,142 @@
+name: release-draft
+
+# Every merge to main leaves exactly one up-to-date draft release for the next
+# patch version. Publishing it (manually) is the release gate: the tag is
+# created at that moment, and immutable releases lock tag + assets.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-draft
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash # bash -eo pipefail
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  draft:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          # Release binaries never come from a cache; reproducibility doesn't
+          # depend on it either way.
+          cache: false
+
+      - name: Compute version
+        id: version
+        run: |
+          mm=$(tr --delete '\r[:space:]' < version.txt)
+          if ! [[ $mm =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "::error file=version.txt::version.txt must contain only major.minor (e.g. 0.1), got '$mm'"
+            exit 1
+          fi
+          # Published releases only (drafts are about to be deleted).
+          tags=$(gh release list --exclude-drafts --limit 10000 --json tagName --jq '.[].tagName')
+          re="^v${mm//./[.]}[.]([0-9]+)$"
+          max=-1
+          while IFS= read -r t; do
+            if [[ $t =~ $re ]]; then
+              n=$((10#${BASH_REMATCH[1]}))
+              if (( n > max )); then max=$n; fi
+            fi
+          done <<< "$tags"
+          tag="v$mm.$((max + 1))"
+          echo "Next version: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Delete existing draft releases
+        run: |
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq '.[] | select(.draft) | "\(.id) \(.tag_name)"' |
+          while read -r id name; do
+            echo "Deleting draft release $name (id $id)"
+            gh api --method DELETE "repos/$GH_REPO/releases/$id"
+          done
+
+      - name: Delete orphan tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          # No published release has this tag (it's one past the highest), so
+          # if the tag exists its release was deleted by hand.
+          rc=0
+          git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null || rc=$?
+          case $rc in
+            2) echo "No tag $TAG; nothing to delete" ;;
+            0)
+              echo "Tag $TAG exists without a published release; deleting it"
+              if ! git push origin ":refs/tags/$TAG"; then
+                echo "::error::Tag $TAG exists with no published release and deleting it was refused (tag protection rule, or the tag of an immutable release). Delete it by hand or bump version.txt; not silently skipping $TAG."
+                exit 1
+              fi
+              ;;
+            *) echo "::error::git ls-remote failed (exit $rc)"; exit 1 ;;
+          esac
+
+      - name: Build (GoReleaser, pinned in tools/go.mod)
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        # tools/release-build.sh copies the 12 release assets out of GoReleaser's
+        # dist/ (which also holds metadata and per-target folders); dist/ is then
+        # replaced with just those assets for the steps below.
+        run: |
+          tools/release-build.sh "$TAG" "$RUNNER_TEMP/assets"
+          rm --recursive --force dist
+          mv "$RUNNER_TEMP/assets" dist
+
+      - name: Compress raw binaries
+        # Transport encodings only; they decompress to the reproducible raw
+        # binary, so they needn't be reproducible themselves.
+        run: |
+          command -v brotli >/dev/null || { sudo apt-get update && sudo apt-get install --yes brotli; }
+          for f in dist/azpgaad-*; do
+            xz -9 --extreme --threads=1 --keep "$f"
+            brotli --best --lgwin=24 --keep "$f"
+            gzip --best --no-name --keep "$f"
+          done
+          ls --format=long dist
+
+      - name: Attest build provenance
+        id: attest
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*
+
+      - name: Ship the attestation bundle as a release asset
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          cp "$BUNDLE" dist/attestation.sigstore.jsonl
+          # Sanity check: the one bundle verifies every asset, offline.
+          for f in dist/azpgaad*; do
+            gh attestation verify "$f" --repo "$GH_REPO" --bundle dist/attestation.sigstore.jsonl > /dev/null
+            echo "verified $f"
+          done
+
+      - name: Create draft release
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create "$TAG" dist/* --draft --target "$GITHUB_SHA" --title "$TAG" --generate-notes

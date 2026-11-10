@@ -1,0 +1,279 @@
+name: ci
+
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CI_TAG: v0.0.0-ci
+
+defaults:
+  run:
+    # Explicit bash = `bash -eo pipefail` (the implicit default has no pipefail).
+    # On Windows runners this is Git Bash.
+    shell: bash
+
+jobs:
+  test:
+    name: go vet / go test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      # Replay mode: offline, no secrets.
+      - run: go test ./...
+
+  lint-scripts:
+    name: lint download scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: shellcheck
+        run: shellcheck --shell=sh download.sh test/download-smoke.sh
+      - name: download.sh has LF line endings
+        run: |
+          if grep --line-number $'\r' download.sh; then
+            echo "::error file=download.sh::download.sh must have LF line endings"
+            exit 1
+          fi
+      - name: download.ps1 is pure ASCII with no BOM
+        # A BOM breaks both in-memory invocation forms: Invoke-Expression and ScriptBlock::Create see U+FEFF as part of the first token.
+        run: |
+          if LC_ALL=C grep --line-number --perl-regexp '[^\x00-\x7F]' download.ps1; then
+            echo "::error file=download.ps1::download.ps1 must be pure ASCII (no BOM, no non-ASCII characters)"
+            exit 1
+          fi
+      - name: PSScriptAnalyzer (syntax compatible with Windows PowerShell 5.1)
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+            Set-PSRepository PSGallery -InstallationPolicy Trusted
+            Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          }
+          $settings = @{
+            IncludeDefaultRules = $true
+            # Write-Host is the intended way to show progress to the user.
+            ExcludeRules = @('PSAvoidUsingWriteHost')
+            Rules = @{
+              PSUseCompatibleSyntax = @{ Enable = $true; TargetVersions = @('5.1', '7.0') }
+            }
+          }
+          $findings = @(Invoke-ScriptAnalyzer -Path download.ps1 -Settings $settings)
+          $findings | Format-Table -AutoSize RuleName, Severity, Line, Message | Out-String -Width 300
+          if ($findings.Count -gt 0) { throw "PSScriptAnalyzer: $($findings.Count) finding(s) in download.ps1" }
+
+  # Reproducibility: the same commit built on two different OSes at two different paths must produce byte-identical assets.
+  dist-linux:
+    name: dist (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # GoReleaser (pinned in tools/go.mod) via tools/release-build.sh. 
+      # The checksum list goes outside the work tree: an untracked file in it would change the binaries' vcs.modified stamp.
+      - run: tools/release-build.sh "$CI_TAG" release | tee "$RUNNER_TEMP/sha256-linux.txt"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sha256-linux
+          path: ${{ runner.temp }}/sha256-linux.txt
+      # Transport variants for the download smoke tests, made the same way as in release-draft.yml.
+      - name: Compress raw binaries
+        run: |
+          command -v brotli >/dev/null || { sudo apt-get update && sudo apt-get install --yes brotli; }
+          for f in release/azpgaad-*; do
+            xz -9 --extreme --threads=1 --keep "$f"
+            brotli --best --lgwin=24 --keep "$f"
+            gzip --best --no-name --keep "$f"
+          done
+          ls --format=long release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: release/
+          if-no-files-found: error
+
+  dist-windows:
+    name: dist (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: elsewhere/at/a/deeper/path
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: elsewhere/at/a/deeper/path
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: elsewhere/at/a/deeper/path/go.mod
+          cache-dependency-path: elsewhere/at/a/deeper/path/go.sum
+      - run: tools/release-build.sh "$CI_TAG" release | tee ../sha256-windows.txt
+        shell: bash
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sha256-windows
+          path: elsewhere/at/a/deeper/sha256-windows.txt
+
+  reproducible:
+    name: compare dist checksums
+    needs: [dist-linux, dist-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: sha256-*
+          path: sums
+          merge-multiple: true
+      - run: |
+          tr --delete '\r' < sums/sha256-linux.txt > linux.txt
+          tr --delete '\r' < sums/sha256-windows.txt > windows.txt
+          cat linux.txt
+          if [ "$(wc --lines < linux.txt)" -ne 12 ]; then
+            echo "::error::expected 12 assets (6 binaries + 6 tarballs) in the dist output"
+            exit 1
+          fi
+          if ! diff --unified linux.txt windows.txt; then
+            echo "::error::dist output is not reproducible: the Linux and Windows builds differ"
+            exit 1
+          fi
+
+  smoke-sh:
+    name: download.sh (${{ matrix.name }})
+    needs: dist-linux
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: azure-cli, xz
+            image: mcr.microsoft.com/azure-cli:2.92.0
+            setup: 'true'
+            expect: xz
+          - name: alpine, busybox xzcat
+            image: alpine
+            setup: apk add --no-cache curl
+            expect: xz
+          - name: debian-slim + brotli
+            image: debian:stable-slim
+            setup: apt-get update --quiet && apt-get install --quiet --yes --no-install-recommends curl ca-certificates brotli
+            expect: br
+          - name: debian-slim, gzip
+            image: debian:stable-slim
+            setup: apt-get update --quiet && apt-get install --quiet --yes --no-install-recommends curl ca-certificates
+            expect: gz
+          - name: no decompressors, raw
+            image: debian:stable-slim
+            setup: apt-get update --quiet && apt-get install --quiet --yes --no-install-recommends curl ca-certificates
+            expect: raw
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: Serve dist/ laid out like a GitHub release
+        run: |
+          # download.sh always fetches the latest release; the raw-only release
+          # (404 fallback test) is served under a second base URL, <base>/rawonly.
+          mkdir --parents srv/latest/download srv/rawonly/latest/download
+          cp dist/* srv/latest/download/
+          find dist -maxdepth 1 -name 'azpgaad-*' ! -name '*.xz' ! -name '*.br' ! -name '*.gz' \
+            -exec cp {} srv/rawonly/latest/download/ \;
+          nohup python3 -m http.server 8000 --bind 127.0.0.1 --directory srv > "$RUNNER_TEMP/server.log" 2>&1 &
+          for _ in $(seq 30); do
+            if curl --fail --silent --show-error --output /dev/null http://127.0.0.1:8000/latest/download/; then exit 0; fi
+            sleep 1
+          done
+          echo "::error::test server did not start"; cat "$RUNNER_TEMP/server.log"; exit 1
+      - name: Run test/download-smoke.sh in ${{ matrix.image }}
+        env:
+          IMAGE: ${{ matrix.image }}
+          SETUP: ${{ matrix.setup }}
+          EXPECT: ${{ matrix.expect }}
+        run: |
+          docker run --rm --network host \
+            --env AZPGAAD_BASE_URL=http://127.0.0.1:8000 --env AZPGAAD_TEST_VERSION="$CI_TAG" \
+            --volume "$PWD:/w:ro" "$IMAGE" \
+            sh -c "$SETUP && echo \"sh is \$(readlink -f /bin/sh)\" && sh /w/test/download-smoke.sh /w/download.sh $EXPECT"
+
+  smoke-ps:
+    name: download.ps1 (Windows PowerShell 5.1 + PowerShell 7)
+    needs: dist-linux
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: Lay out dist/ like a GitHub release
+        run: |
+          mkdir --parents srv/latest/download "srv/download/$CI_TAG" srv/download/v0.0.0-rawonly
+          cp dist/* srv/latest/download/
+          cp dist/* "srv/download/$CI_TAG/"
+          find dist -maxdepth 1 -name 'azpgaad-*' ! -name '*.xz' ! -name '*.br' ! -name '*.gz' \
+            -exec cp {} srv/download/v0.0.0-rawonly/ \;
+          # raw.githubusercontent.com serves the script as text/plain; .txt
+          # gets the same Content-Type from http.server.
+          cp download.ps1 srv/download.ps1.txt
+      # The smoke test serves srv/ itself (python -m http.server) and runs
+      # download.ps1 through both in-memory forms. Failures throw; `exit 0`
+      # keeps a stray $LASTEXITCODE from deciding the step result.
+      - name: Windows PowerShell 5.1 (expects .gz via GZipStream)
+        shell: powershell
+        run: |
+          & .\test\download-smoke.ps1 -ServeDir srv -Port 8001 -Expect gz -WantVersion $env:CI_TAG
+          exit 0
+      - name: PowerShell 7 (expects .br via BrotliStream)
+        shell: pwsh
+        run: |
+          & ./test/download-smoke.ps1 -ServeDir srv -Port 8002 -Expect br -WantVersion $env:CI_TAG
+          exit 0
+      # download.cmd runs from cmd.exe and delegates to the download.ps1 next to it
+      # (this checkout) through Windows PowerShell.
+      - name: download.cmd (cmd.exe -> Windows PowerShell 5.1)
+        shell: pwsh
+        run: |
+          $srv = Start-Process python -ArgumentList '-m', 'http.server', '8003', '--bind', '127.0.0.1', '--directory', 'srv' -PassThru -WindowStyle Hidden
+          try {
+            Start-Sleep -Seconds 2
+            $env:AZPGAAD_BASE_URL = 'http://127.0.0.1:8003'
+            $out = Join-Path $env:RUNNER_TEMP 'cmd test\azpgaad.exe'
+            cmd /c "download.cmd --output `"$out`""
+            if ($LASTEXITCODE -ne 0) { throw "download.cmd exited $LASTEXITCODE" }
+            $v = & $out --version
+            if ($v -ne $env:CI_TAG) { throw "downloaded binary reports '$v', want '$env:CI_TAG'" }
+            cmd /c "download.cmd --bogus"
+            if ($LASTEXITCODE -ne 2) { throw "bad argument exited $LASTEXITCODE, want 2" }
+            cmd /c "download.cmd --version v0.0.0-missing --output `"$out`""
+            if ($LASTEXITCODE -ne 1) { throw "missing release exited $LASTEXITCODE, want 1" }
+          } finally { Stop-Process -Id $srv.Id -Force }
+          exit 0
+
+  batch:
+    name: cmd errorlevel
+    needs: dist-linux
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: Put azpgaad.exe on PATH
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:RUNNER_TEMP 'bin'
+          New-Item -ItemType Directory -Path $bin -Force | Out-Null
+          Copy-Item dist/azpgaad-windows-amd64.exe (Join-Path $bin 'azpgaad.exe')
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+      - name: test\errorlevel.cmd
+        shell: cmd
+        run: call test\errorlevel.cmd azpgaad %CI_TAG%

@@ -1,0 +1,1901 @@
+[
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop database if exists azpgaad_test_db with (force)"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop role if exists azpgaad_test_app"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop role if exists azpgaad_test_owner"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop role if exists azpgaad_test_entra"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "create database azpgaad_test_db"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "create role azpgaad_test_owner nologin"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "create role azpgaad_test_app nologin"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "create schema app"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "create table app.t1 (id int generated always as identity)"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "create view app.v1 as select * from app.t1"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "create function app.f1(i int) returns int language sql as 'select i'"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "create procedure app.p1() language sql as 'select 1'"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "create aggregate app.sum2(int) (sfunc = int4pl, stype = int)"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as name, a.objectid\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere r.rolname = any($1::text[])",
+    "args": [
+      [
+        "azpgaad_test_entra"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "objectid"
+      ],
+      "rows": []
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "select pg_catalog.pgaadauth_create_principal_with_oid($1::text, $2::text, $3::text, $4::boolean, $5::boolean)",
+    "args": [
+      "azpgaad_test_entra",
+      "aaaaaaaa-0000-0000-0000-000000000001",
+      "user",
+      false,
+      false
+    ]
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "GRANT CONNECT ON DATABASE \"postgres\" TO \"azpgaad_test_entra\", \"azpgaad_test_app\""
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "GRANT CONNECT, TEMPORARY ON DATABASE \"azpgaad_test_db\" TO \"azpgaad_test_entra\", \"azpgaad_test_app\""
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select n.nspname from pg_namespace n where n.nspname = any($1::text[]) order by n.nspname",
+    "args": [
+      [
+        "public"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "nspname"
+      ],
+      "rows": [
+        [
+          "public"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "GRANT USAGE ON SCHEMA \"public\" TO \"azpgaad_test_entra\""
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "app",
+          "user1@example.com"
+        ],
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "begin"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "GRANT USAGE ON SCHEMA \"app\" TO \"azpgaad_test_entra\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "GRANT USAGE ON SCHEMA \"public\" TO \"azpgaad_test_entra\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.name as role, $1::text as database,\n  coalesce((select array_agg(p.p order by p.ord)\n            from unnest(array['CONNECT', 'CREATE', 'TEMPORARY']) with ordinality p(p, ord)\n            where has_database_privilege(r.name, $1::text, p.p)), '{}') as privileges\nfrom unnest($2::text[]) with ordinality r(name, ord)\norder by r.ord",
+    "args": [
+      "postgres",
+      [
+        "azpgaad_test_entra",
+        "azpgaad_test_app"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "role",
+        "database",
+        "privileges"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_entra",
+          "postgres",
+          [
+            "CONNECT",
+            "TEMPORARY"
+          ]
+        ],
+        [
+          "azpgaad_test_app",
+          "postgres",
+          [
+            "CONNECT",
+            "TEMPORARY"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select r.name as role, $1::text as database,\n  coalesce((select array_agg(p.p order by p.ord)\n            from unnest(array['CONNECT', 'CREATE', 'TEMPORARY']) with ordinality p(p, ord)\n            where has_database_privilege(r.name, $1::text, p.p)), '{}') as privileges\nfrom unnest($2::text[]) with ordinality r(name, ord)\norder by r.ord",
+    "args": [
+      "azpgaad_test_db",
+      [
+        "azpgaad_test_entra",
+        "azpgaad_test_app",
+        "public"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "role",
+        "database",
+        "privileges"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_entra",
+          "azpgaad_test_db",
+          [
+            "CONNECT",
+            "TEMPORARY"
+          ]
+        ],
+        [
+          "azpgaad_test_app",
+          "azpgaad_test_db",
+          [
+            "CONNECT",
+            "TEMPORARY"
+          ]
+        ],
+        [
+          "public",
+          "azpgaad_test_db",
+          [
+            "CONNECT",
+            "TEMPORARY"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.name as role, n.nspname as schema, x.privs as privileges\nfrom unnest($1::text[]) with ordinality r(name, ord)\ncross join pg_namespace n\ncross join lateral (select array_agg(p.p order by p.ord) privs\n                    from unnest(array['USAGE', 'CREATE']) with ordinality p(p, ord)\n                    where has_schema_privilege(r.name, n.oid, p.p)) x\nwhere (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron')) and x.privs is not null\norder by r.ord, n.nspname",
+    "args": [
+      [
+        "azpgaad_test_entra"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "role",
+        "schema",
+        "privileges"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_entra",
+          "public",
+          [
+            "USAGE"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as rolename,\n  (select array_agg(m.rolname::text order by m.rolname)\n   from pg_auth_members am join pg_roles m on m.oid = am.roleid\n   where am.member = r.oid) as memberof,\n  case when $2::text is null then null else\n    (select array_agg(p.p order by p.ord)\n     from unnest(array['CONNECT', 'CREATE', 'TEMPORARY']) with ordinality p(p, ord)\n     where has_database_privilege(r.oid, $2::text, p.p)) end as dbprivileges,\n  a.rolname as aadname, a.principaltype as aadtype, a.objectid as aadobjectid,\n  a.tenantid as aadtenantid, a.isadmin = 1 as aadisadmin\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere $1::boolean or (not starts_with(r.rolname, 'pg_') and not starts_with(r.rolname, 'azure') and r.rolname <> 'replication')\norder by r.rolname",
+    "args": [
+      false,
+      "azpgaad_test_db"
+    ],
+    "result": {
+      "columns": [
+        "rolename",
+        "memberof",
+        "dbprivileges",
+        "aadname",
+        "aadtype",
+        "aadobjectid",
+        "aadtenantid",
+        "aadisadmin"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_app",
+          null,
+          [
+            "CONNECT",
+            "TEMPORARY"
+          ],
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "azpgaad_test_entra",
+          null,
+          [
+            "CONNECT",
+            "TEMPORARY"
+          ],
+          "azpgaad_test_entra",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          false
+        ],
+        [
+          "azpgaad_test_owner",
+          null,
+          [
+            "CONNECT",
+            "TEMPORARY"
+          ],
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "user1@example.com",
+          [
+            "azpgaad_test_app",
+            "azpgaad_test_entra",
+            "azpgaad_test_owner",
+            "azure_pg_admin"
+          ],
+          [
+            "CONNECT",
+            "CREATE",
+            "TEMPORARY"
+          ],
+          "user1@example.com",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "app",
+          "user1@example.com"
+        ],
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "app",
+          "user1@example.com"
+        ],
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "begin"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "GRANT USAGE ON SCHEMA \"app\" TO \"azpgaad_test_app\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "GRANT USAGE ON SCHEMA \"public\" TO \"azpgaad_test_app\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "commit"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname from pg_namespace n where n.nspname = any($1::text[]) order by n.nspname",
+    "args": [
+      [
+        "missing"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "nspname"
+      ],
+      "rows": []
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "app",
+          "user1@example.com"
+        ],
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "begin"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA \"app\" TO \"azpgaad_test_app\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA \"public\" TO \"azpgaad_test_app\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "commit"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "app",
+          "user1@example.com"
+        ],
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as schema, c.relname as name\nfrom pg_class c join pg_namespace n on n.oid = c.relnamespace\nwhere c.relkind in ('r', 'p', 'v', 'm', 'f')\n  and n.nspname = any($1::text[])\n  and c.relname = any($2::text[])\norder by n.nspname, c.relname",
+    "args": [
+      [
+        "app",
+        "public"
+      ],
+      [
+        "v1"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "schema",
+        "name"
+      ],
+      "rows": [
+        [
+          "app",
+          "v1"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "begin"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "GRANT UPDATE ON TABLE \"app\".\"v1\" TO \"azpgaad_test_app\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "commit"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "app",
+          "user1@example.com"
+        ],
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as schema, c.relname as name\nfrom pg_class c join pg_namespace n on n.oid = c.relnamespace\nwhere c.relkind in ('r', 'p', 'v', 'm', 'f')\n  and n.nspname = any($1::text[])\n  and c.relname = any($2::text[])\norder by n.nspname, c.relname",
+    "args": [
+      [
+        "app",
+        "public"
+      ],
+      [
+        "nope"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "schema",
+        "name"
+      ],
+      "rows": []
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "app",
+          "user1@example.com"
+        ],
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "begin"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "ALTER DEFAULT PRIVILEGES FOR ROLE \"azpgaad_test_owner\" IN SCHEMA \"app\" GRANT SELECT ON TABLES TO \"azpgaad_test_app\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "ALTER DEFAULT PRIVILEGES FOR ROLE \"azpgaad_test_owner\" IN SCHEMA \"public\" GRANT SELECT ON TABLES TO \"azpgaad_test_app\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "GRANT \"azpgaad_test_owner\" TO \"azpgaad_test_app\""
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select r.name as role, n.nspname as schema, x.privs as privileges\nfrom unnest($1::text[]) with ordinality r(name, ord)\ncross join pg_namespace n\ncross join lateral (select array_agg(p.p order by p.ord) privs\n                    from unnest(array['USAGE', 'CREATE']) with ordinality p(p, ord)\n                    where has_schema_privilege(r.name, n.oid, p.p)) x\nwhere (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron')) and x.privs is not null\norder by r.ord, n.nspname",
+    "args": [
+      [
+        "azpgaad_test_app"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "role",
+        "schema",
+        "privileges"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_app",
+          "app",
+          [
+            "USAGE"
+          ]
+        ],
+        [
+          "azpgaad_test_app",
+          "public",
+          [
+            "USAGE"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select r.name as role, t.nspname as schema, t.relname as \"table\", x.privs as privileges\nfrom unnest($1::text[]) with ordinality r(name, ord)\ncross join (select c.oid, n.nspname, c.relname\n            from pg_class c join pg_namespace n on n.oid = c.relnamespace\n            where c.relkind in ('r', 'p', 'v', 'm', 'f') and (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))) t\ncross join lateral (select array_agg(p.p order by p.ord) privs\n                    from unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) with ordinality p(p, ord)\n                    where has_table_privilege(r.name, t.oid, p.p)) x\nwhere x.privs is not null\norder by r.ord, t.nspname, t.relname",
+    "args": [
+      [
+        "azpgaad_test_app"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "role",
+        "schema",
+        "table",
+        "privileges"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_app",
+          "app",
+          "t1",
+          [
+            "SELECT",
+            "INSERT"
+          ]
+        ],
+        [
+          "azpgaad_test_app",
+          "app",
+          "v1",
+          [
+            "SELECT",
+            "INSERT",
+            "UPDATE"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select pg_get_userbyid(d.defaclrole) as owner, n.nspname as schema,\n  case d.defaclobjtype when 'r' then 'tables' when 'S' then 'sequences' when 'f' then 'functions'\n                       when 'T' then 'types' when 'n' then 'schemas' end as objecttype,\n  g.grantee, a.privilege_type as privilege\nfrom pg_default_acl d\nleft join pg_namespace n on n.oid = d.defaclnamespace\ncross join lateral aclexplode(d.defaclacl) a\ncross join lateral (select case when a.grantee = 0 then 'public' else pg_get_userbyid(a.grantee) end grantee) g\nwhere cardinality($1::text[]) = 0 or g.grantee = any($1::text[])\norder by 1, 2, d.defaclobjtype, g.grantee, a.privilege_type",
+    "args": [
+      [
+        "azpgaad_test_app"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "owner",
+        "schema",
+        "objecttype",
+        "grantee",
+        "privilege"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_owner",
+          "app",
+          "tables",
+          "azpgaad_test_app",
+          "SELECT"
+        ],
+        [
+          "azpgaad_test_owner",
+          "public",
+          "tables",
+          "azpgaad_test_app",
+          "SELECT"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "with objs as (\n  select 'database' kind, null::text sch, d.datname::text name, null::text args, pg_get_userbyid(d.datdba) owner, 0 ord\n  from pg_database d where d.datname = current_database()\n  union all\n  select 'schema', n.nspname, n.nspname, null, pg_get_userbyid(n.nspowner), 1\n  from pg_namespace n where (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n  union all\n  select case c.relkind when 'r' then 'table' when 'p' then 'table' when 'v' then 'view'\n                        when 'm' then 'materialized view' when 'S' then 'sequence' when 'f' then 'foreign table' end,\n         n.nspname, c.relname, null, pg_get_userbyid(c.relowner), 2\n  from pg_class c join pg_namespace n on n.oid = c.relnamespace\n  where c.relkind in ('r', 'p', 'v', 'm', 'S', 'f') and (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n    and not exists (select 1 from pg_depend dep where dep.classid = 'pg_class'::regclass and dep.objid = c.oid\n                    and (dep.deptype = 'e' or (c.relkind = 'S' and dep.deptype in ('a', 'i'))))\n  union all\n  select case p.prokind when 'a' then 'aggregate' when 'p' then 'procedure' else 'function' end,\n         n.nspname, p.proname, pg_get_function_identity_arguments(p.oid), pg_get_userbyid(p.proowner), 3\n  from pg_proc p join pg_namespace n on n.oid = p.pronamespace\n  where (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n    and not exists (select 1 from pg_depend dep where dep.classid = 'pg_proc'::regclass and dep.objid = p.oid and dep.deptype = 'e')\n)\nselect kind as type, sch as schema, name, args, owner\nfrom objs\norder by ord, sch, name, args",
+    "result": {
+      "columns": [
+        "type",
+        "schema",
+        "name",
+        "args",
+        "owner"
+      ],
+      "rows": [
+        [
+          "database",
+          null,
+          "azpgaad_test_db",
+          null,
+          "user1@example.com"
+        ],
+        [
+          "schema",
+          "app",
+          "app",
+          null,
+          "user1@example.com"
+        ],
+        [
+          "schema",
+          "public",
+          "public",
+          null,
+          "azure_pg_admin"
+        ],
+        [
+          "table",
+          "app",
+          "t1",
+          null,
+          "user1@example.com"
+        ],
+        [
+          "view",
+          "app",
+          "v1",
+          null,
+          "user1@example.com"
+        ],
+        [
+          "function",
+          "app",
+          "f1",
+          "i integer",
+          "user1@example.com"
+        ],
+        [
+          "procedure",
+          "app",
+          "p1",
+          "",
+          "user1@example.com"
+        ],
+        [
+          "aggregate",
+          "app",
+          "sum2",
+          "integer",
+          "user1@example.com"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "with objs as (\n  select 'database' kind, null::text sch, d.datname::text name, null::text args, pg_get_userbyid(d.datdba) owner, 0 ord\n  from pg_database d where d.datname = current_database()\n  union all\n  select 'schema', n.nspname, n.nspname, null, pg_get_userbyid(n.nspowner), 1\n  from pg_namespace n where (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n  union all\n  select case c.relkind when 'r' then 'table' when 'p' then 'table' when 'v' then 'view'\n                        when 'm' then 'materialized view' when 'S' then 'sequence' when 'f' then 'foreign table' end,\n         n.nspname, c.relname, null, pg_get_userbyid(c.relowner), 2\n  from pg_class c join pg_namespace n on n.oid = c.relnamespace\n  where c.relkind in ('r', 'p', 'v', 'm', 'S', 'f') and (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n    and not exists (select 1 from pg_depend dep where dep.classid = 'pg_class'::regclass and dep.objid = c.oid\n                    and (dep.deptype = 'e' or (c.relkind = 'S' and dep.deptype in ('a', 'i'))))\n  union all\n  select case p.prokind when 'a' then 'aggregate' when 'p' then 'procedure' else 'function' end,\n         n.nspname, p.proname, pg_get_function_identity_arguments(p.oid), pg_get_userbyid(p.proowner), 3\n  from pg_proc p join pg_namespace n on n.oid = p.pronamespace\n  where (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n    and not exists (select 1 from pg_depend dep where dep.classid = 'pg_proc'::regclass and dep.objid = p.oid and dep.deptype = 'e')\n)\nselect kind as type, sch as schema, name, args, owner\nfrom objs\norder by ord, sch, name, args",
+    "result": {
+      "columns": [
+        "type",
+        "schema",
+        "name",
+        "args",
+        "owner"
+      ],
+      "rows": [
+        [
+          "database",
+          null,
+          "azpgaad_test_db",
+          null,
+          "user1@example.com"
+        ],
+        [
+          "schema",
+          "app",
+          "app",
+          null,
+          "user1@example.com"
+        ],
+        [
+          "schema",
+          "public",
+          "public",
+          null,
+          "azure_pg_admin"
+        ],
+        [
+          "table",
+          "app",
+          "t1",
+          null,
+          "user1@example.com"
+        ],
+        [
+          "view",
+          "app",
+          "v1",
+          null,
+          "user1@example.com"
+        ],
+        [
+          "function",
+          "app",
+          "f1",
+          "i integer",
+          "user1@example.com"
+        ],
+        [
+          "procedure",
+          "app",
+          "p1",
+          "",
+          "user1@example.com"
+        ],
+        [
+          "aggregate",
+          "app",
+          "sum2",
+          "integer",
+          "user1@example.com"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select r.rolname as role, pg_has_role(current_user, r.oid, 'MEMBER') as member\nfrom pg_roles r\nwhere r.rolname = any($1::text[])",
+    "args": [
+      [
+        "azpgaad_test_owner",
+        "user1@example.com"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "role",
+        "member"
+      ],
+      "rows": [
+        [
+          "user1@example.com",
+          true
+        ],
+        [
+          "azpgaad_test_owner",
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "with objs as (\n  select 'database' kind, null::text sch, d.datname::text name, null::text args, pg_get_userbyid(d.datdba) owner, 0 ord\n  from pg_database d where d.datname = current_database()\n  union all\n  select 'schema', n.nspname, n.nspname, null, pg_get_userbyid(n.nspowner), 1\n  from pg_namespace n where (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n  union all\n  select case c.relkind when 'r' then 'table' when 'p' then 'table' when 'v' then 'view'\n                        when 'm' then 'materialized view' when 'S' then 'sequence' when 'f' then 'foreign table' end,\n         n.nspname, c.relname, null, pg_get_userbyid(c.relowner), 2\n  from pg_class c join pg_namespace n on n.oid = c.relnamespace\n  where c.relkind in ('r', 'p', 'v', 'm', 'S', 'f') and (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n    and not exists (select 1 from pg_depend dep where dep.classid = 'pg_class'::regclass and dep.objid = c.oid\n                    and (dep.deptype = 'e' or (c.relkind = 'S' and dep.deptype in ('a', 'i'))))\n  union all\n  select case p.prokind when 'a' then 'aggregate' when 'p' then 'procedure' else 'function' end,\n         n.nspname, p.proname, pg_get_function_identity_arguments(p.oid), pg_get_userbyid(p.proowner), 3\n  from pg_proc p join pg_namespace n on n.oid = p.pronamespace\n  where (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n    and not exists (select 1 from pg_depend dep where dep.classid = 'pg_proc'::regclass and dep.objid = p.oid and dep.deptype = 'e')\n)\nselect kind as type, sch as schema, name, args, owner\nfrom objs\norder by ord, sch, name, args",
+    "result": {
+      "columns": [
+        "type",
+        "schema",
+        "name",
+        "args",
+        "owner"
+      ],
+      "rows": [
+        [
+          "database",
+          null,
+          "azpgaad_test_db",
+          null,
+          "user1@example.com"
+        ],
+        [
+          "schema",
+          "app",
+          "app",
+          null,
+          "user1@example.com"
+        ],
+        [
+          "schema",
+          "public",
+          "public",
+          null,
+          "azure_pg_admin"
+        ],
+        [
+          "table",
+          "app",
+          "t1",
+          null,
+          "user1@example.com"
+        ],
+        [
+          "view",
+          "app",
+          "v1",
+          null,
+          "user1@example.com"
+        ],
+        [
+          "function",
+          "app",
+          "f1",
+          "i integer",
+          "user1@example.com"
+        ],
+        [
+          "procedure",
+          "app",
+          "p1",
+          "",
+          "user1@example.com"
+        ],
+        [
+          "aggregate",
+          "app",
+          "sum2",
+          "integer",
+          "user1@example.com"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select r.rolname as role, pg_has_role(current_user, r.oid, 'MEMBER') as member\nfrom pg_roles r\nwhere r.rolname = any($1::text[])",
+    "args": [
+      [
+        "azpgaad_test_owner",
+        "user1@example.com"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "role",
+        "member"
+      ],
+      "rows": [
+        [
+          "user1@example.com",
+          true
+        ],
+        [
+          "azpgaad_test_owner",
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "begin"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "ALTER DATABASE \"azpgaad_test_db\" OWNER TO \"azpgaad_test_owner\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "ALTER SCHEMA \"app\" OWNER TO \"azpgaad_test_owner\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "ALTER TABLE \"app\".\"t1\" OWNER TO \"azpgaad_test_owner\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "ALTER VIEW \"app\".\"v1\" OWNER TO \"azpgaad_test_owner\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "ALTER ROUTINE \"app\".\"f1\"(i integer) OWNER TO \"azpgaad_test_owner\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "ALTER ROUTINE \"app\".\"p1\"() OWNER TO \"azpgaad_test_owner\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "ALTER AGGREGATE \"app\".\"sum2\"(integer) OWNER TO \"azpgaad_test_owner\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "commit"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "with objs as (\n  select 'database' kind, null::text sch, d.datname::text name, null::text args, pg_get_userbyid(d.datdba) owner, 0 ord\n  from pg_database d where d.datname = current_database()\n  union all\n  select 'schema', n.nspname, n.nspname, null, pg_get_userbyid(n.nspowner), 1\n  from pg_namespace n where (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n  union all\n  select case c.relkind when 'r' then 'table' when 'p' then 'table' when 'v' then 'view'\n                        when 'm' then 'materialized view' when 'S' then 'sequence' when 'f' then 'foreign table' end,\n         n.nspname, c.relname, null, pg_get_userbyid(c.relowner), 2\n  from pg_class c join pg_namespace n on n.oid = c.relnamespace\n  where c.relkind in ('r', 'p', 'v', 'm', 'S', 'f') and (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n    and not exists (select 1 from pg_depend dep where dep.classid = 'pg_class'::regclass and dep.objid = c.oid\n                    and (dep.deptype = 'e' or (c.relkind = 'S' and dep.deptype in ('a', 'i'))))\n  union all\n  select case p.prokind when 'a' then 'aggregate' when 'p' then 'procedure' else 'function' end,\n         n.nspname, p.proname, pg_get_function_identity_arguments(p.oid), pg_get_userbyid(p.proowner), 3\n  from pg_proc p join pg_namespace n on n.oid = p.pronamespace\n  where (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n    and not exists (select 1 from pg_depend dep where dep.classid = 'pg_proc'::regclass and dep.objid = p.oid and dep.deptype = 'e')\n)\nselect kind as type, sch as schema, name, args, owner\nfrom objs\norder by ord, sch, name, args",
+    "result": {
+      "columns": [
+        "type",
+        "schema",
+        "name",
+        "args",
+        "owner"
+      ],
+      "rows": [
+        [
+          "database",
+          null,
+          "azpgaad_test_db",
+          null,
+          "azpgaad_test_owner"
+        ],
+        [
+          "schema",
+          "app",
+          "app",
+          null,
+          "azpgaad_test_owner"
+        ],
+        [
+          "schema",
+          "public",
+          "public",
+          null,
+          "azure_pg_admin"
+        ],
+        [
+          "table",
+          "app",
+          "t1",
+          null,
+          "azpgaad_test_owner"
+        ],
+        [
+          "view",
+          "app",
+          "v1",
+          null,
+          "azpgaad_test_owner"
+        ],
+        [
+          "function",
+          "app",
+          "f1",
+          "i integer",
+          "azpgaad_test_owner"
+        ],
+        [
+          "procedure",
+          "app",
+          "p1",
+          "",
+          "azpgaad_test_owner"
+        ],
+        [
+          "aggregate",
+          "app",
+          "sum2",
+          "integer",
+          "azpgaad_test_owner"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "with objs as (\n  select 'database' kind, null::text sch, d.datname::text name, null::text args, pg_get_userbyid(d.datdba) owner, 0 ord\n  from pg_database d where d.datname = current_database()\n  union all\n  select 'schema', n.nspname, n.nspname, null, pg_get_userbyid(n.nspowner), 1\n  from pg_namespace n where (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n  union all\n  select case c.relkind when 'r' then 'table' when 'p' then 'table' when 'v' then 'view'\n                        when 'm' then 'materialized view' when 'S' then 'sequence' when 'f' then 'foreign table' end,\n         n.nspname, c.relname, null, pg_get_userbyid(c.relowner), 2\n  from pg_class c join pg_namespace n on n.oid = c.relnamespace\n  where c.relkind in ('r', 'p', 'v', 'm', 'S', 'f') and (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n    and not exists (select 1 from pg_depend dep where dep.classid = 'pg_class'::regclass and dep.objid = c.oid\n                    and (dep.deptype = 'e' or (c.relkind = 'S' and dep.deptype in ('a', 'i'))))\n  union all\n  select case p.prokind when 'a' then 'aggregate' when 'p' then 'procedure' else 'function' end,\n         n.nspname, p.proname, pg_get_function_identity_arguments(p.oid), pg_get_userbyid(p.proowner), 3\n  from pg_proc p join pg_namespace n on n.oid = p.pronamespace\n  where (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\n    and not exists (select 1 from pg_depend dep where dep.classid = 'pg_proc'::regclass and dep.objid = p.oid and dep.deptype = 'e')\n)\nselect kind as type, sch as schema, name, args, owner\nfrom objs\norder by ord, sch, name, args",
+    "result": {
+      "columns": [
+        "type",
+        "schema",
+        "name",
+        "args",
+        "owner"
+      ],
+      "rows": [
+        [
+          "database",
+          null,
+          "azpgaad_test_db",
+          null,
+          "azpgaad_test_owner"
+        ],
+        [
+          "schema",
+          "app",
+          "app",
+          null,
+          "azpgaad_test_owner"
+        ],
+        [
+          "schema",
+          "public",
+          "public",
+          null,
+          "azure_pg_admin"
+        ],
+        [
+          "table",
+          "app",
+          "t1",
+          null,
+          "azpgaad_test_owner"
+        ],
+        [
+          "view",
+          "app",
+          "v1",
+          null,
+          "azpgaad_test_owner"
+        ],
+        [
+          "function",
+          "app",
+          "f1",
+          "i integer",
+          "azpgaad_test_owner"
+        ],
+        [
+          "procedure",
+          "app",
+          "p1",
+          "",
+          "azpgaad_test_owner"
+        ],
+        [
+          "aggregate",
+          "app",
+          "sum2",
+          "integer",
+          "azpgaad_test_owner"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "DROP ROLE \"azpgaad_test_app\"",
+    "error": {
+      "code": "2BP01",
+      "message": "role \"azpgaad_test_app\" cannot be dropped because some objects depend on it",
+      "detail": "privileges for database postgres\nprivileges for database azpgaad_test_db\n6 objects in database azpgaad_test_db"
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "rollback"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "REVOKE \"azpgaad_test_owner\" FROM \"azpgaad_test_app\""
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "app",
+          "azpgaad_test_owner"
+        ],
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select has_database_privilege('public', $1::text, 'CONNECT')",
+    "args": [
+      "azpgaad_test_db"
+    ],
+    "result": {
+      "columns": [
+        "has_database_privilege"
+      ],
+      "rows": [
+        [
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "begin"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "REVOKE ALL PRIVILEGES ON DATABASE \"azpgaad_test_db\" FROM \"azpgaad_test_app\", \"azpgaad_test_gone\"",
+    "error": {
+      "code": "42704",
+      "message": "role \"azpgaad_test_gone\" does not exist"
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "rollback"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname from pg_roles r where r.rolname = any($1::text[]) order by r.rolname",
+    "args": [
+      [
+        "azpgaad_test_app",
+        "azpgaad_test_entra",
+        "azpgaad_test_gone"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "rolname"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_app"
+        ],
+        [
+          "azpgaad_test_entra"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "app",
+          "azpgaad_test_owner"
+        ],
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select has_database_privilege('public', $1::text, 'CONNECT')",
+    "args": [
+      "azpgaad_test_db"
+    ],
+    "result": {
+      "columns": [
+        "has_database_privilege"
+      ],
+      "rows": [
+        [
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "begin"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "REVOKE ALL PRIVILEGES ON DATABASE \"azpgaad_test_db\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "REVOKE ALL ON SCHEMA \"app\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "REVOKE ALL ON SCHEMA \"public\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select has_database_privilege('public', $1::text, 'CONNECT')",
+    "args": [
+      "postgres"
+    ],
+    "result": {
+      "columns": [
+        "has_database_privilege"
+      ],
+      "rows": [
+        [
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "REVOKE ALL PRIVILEGES ON DATABASE \"postgres\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\""
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "REVOKE ALL ON SCHEMA \"public\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\""
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname from pg_roles r where r.rolname = any($1::text[]) order by r.rolname",
+    "args": [
+      [
+        "azpgaad_test_app",
+        "azpgaad_test_gone"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "rolname"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_app"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "app",
+          "azpgaad_test_owner"
+        ],
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "begin"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "REVOKE ALL ON ALL TABLES IN SCHEMA \"app\" FROM \"azpgaad_test_app\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "REVOKE ALL ON ALL TABLES IN SCHEMA \"public\" FROM \"azpgaad_test_app\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "commit"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "app",
+          "azpgaad_test_owner"
+        ],
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "begin"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "ALTER DEFAULT PRIVILEGES FOR ROLE \"azpgaad_test_owner\" IN SCHEMA \"app\" REVOKE SELECT ON TABLES FROM \"azpgaad_test_app\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "ALTER DEFAULT PRIVILEGES FOR ROLE \"azpgaad_test_owner\" IN SCHEMA \"public\" REVOKE SELECT ON TABLES FROM \"azpgaad_test_app\""
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.name as role, $1::text as database,\n  coalesce((select array_agg(p.p order by p.ord)\n            from unnest(array['CONNECT', 'CREATE', 'TEMPORARY']) with ordinality p(p, ord)\n            where has_database_privilege(r.name, $1::text, p.p)), '{}') as privileges\nfrom unnest($2::text[]) with ordinality r(name, ord)\norder by r.ord",
+    "args": [
+      "postgres",
+      [
+        "azpgaad_test_app",
+        "azpgaad_test_entra"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "role",
+        "database",
+        "privileges"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_app",
+          "postgres",
+          [
+            "CONNECT",
+            "TEMPORARY"
+          ]
+        ],
+        [
+          "azpgaad_test_entra",
+          "postgres",
+          [
+            "CONNECT",
+            "TEMPORARY"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select r.name as role, t.nspname as schema, t.relname as \"table\", x.privs as privileges\nfrom unnest($1::text[]) with ordinality r(name, ord)\ncross join (select c.oid, n.nspname, c.relname\n            from pg_class c join pg_namespace n on n.oid = c.relnamespace\n            where c.relkind in ('r', 'p', 'v', 'm', 'f') and (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))) t\ncross join lateral (select array_agg(p.p order by p.ord) privs\n                    from unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) with ordinality p(p, ord)\n                    where has_table_privilege(r.name, t.oid, p.p)) x\nwhere x.privs is not null\norder by r.ord, t.nspname, t.relname",
+    "args": [
+      [
+        "azpgaad_test_app"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "role",
+        "schema",
+        "table",
+        "privileges"
+      ],
+      "rows": []
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "grant azpgaad_test_owner to current_user"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop database azpgaad_test_db with (force)"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "DROP ROLE \"azpgaad_test_app\", \"azpgaad_test_owner\", \"azpgaad_test_entra\""
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop role if exists azpgaad_test_app"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop role if exists azpgaad_test_owner"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop role if exists azpgaad_test_entra"
+  }
+]

@@ -1,0 +1,879 @@
+[
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop role if exists azpgaad_test_user"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop role if exists azpgaad_test_b1"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop role if exists azpgaad_test_plain"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as name, a.objectid\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere r.rolname = any($1::text[])",
+    "args": [
+      [
+        "azpgaad_test_bad"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "objectid"
+      ],
+      "rows": []
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "select pg_catalog.pgaadauth_create_principal_with_oid($1::text, $2::text, $3::text, $4::boolean, $5::boolean)",
+    "args": [
+      "azpgaad_test_bad",
+      "00000000-0000-0000-0000-000000000001",
+      "user",
+      false,
+      false
+    ],
+    "error": {
+      "code": "0LP01",
+      "message": "Cannot validate Microsoft Entra ID user \"azpgaad_test_bad\" with OID \"00000000-0000-0000-0000-000000000001\" because the OID isn't found in the tenant.\nMake sure it's correct and retry."
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "rollback"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as name, a.objectid\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere r.rolname = any($1::text[])",
+    "args": [
+      [
+        "azpgaad_test_bad"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "objectid"
+      ],
+      "rows": []
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "select pg_catalog.pgaadauth_create_principal_with_oid($1::text, $2::text, $3::text, $4::boolean, $5::boolean)",
+    "args": [
+      "azpgaad_test_bad",
+      "aaaaaaaa-0000-0000-0000-000000000001",
+      "service",
+      false,
+      false
+    ],
+    "error": {
+      "code": "XX000",
+      "message": "Incorrect object type provided for principal. Given object type: 'service', actual object type: 'user'"
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "rollback"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as name, a.objectid\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere r.rolname = any($1::text[])",
+    "args": [
+      [
+        "azpgaad_test_bad"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "objectid"
+      ],
+      "rows": []
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "select pg_catalog.pgaadauth_create_principal_with_oid($1::text, $2::text, $3::text, $4::boolean, $5::boolean)",
+    "args": [
+      "azpgaad_test_bad",
+      "00000000-0000-0000-0000-000000000001",
+      "user",
+      false,
+      false
+    ],
+    "error": {
+      "code": "0LP01",
+      "message": "Cannot validate Microsoft Entra ID user \"azpgaad_test_bad\" with OID \"00000000-0000-0000-0000-000000000001\" because the OID isn't found in the tenant.\nMake sure it's correct and retry."
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "rollback"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select t.rolname as name, t.principaltype as type, t.objectid, t.tenantid,\n  t.ismfa = 1 as ismfa, t.isadmin = 1 as isadmin\nfrom pg_catalog.pgaadauth_list_principals(false) t\nwhere (not $1::boolean or t.rolname <> current_user)\n  and not (t.rolname = any($2::text[]))\norder by t.rolname",
+    "args": [
+      false,
+      []
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "type",
+        "objectid",
+        "tenantid",
+        "ismfa",
+        "isadmin"
+      ],
+      "rows": [
+        [
+          "user1@example.com",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          false,
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as name, a.objectid\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere r.rolname = any($1::text[])",
+    "args": [
+      [
+        "azpgaad_test_user"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "objectid"
+      ],
+      "rows": []
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "select pg_catalog.pgaadauth_create_principal_with_oid($1::text, $2::text, $3::text, $4::boolean, $5::boolean)",
+    "args": [
+      "azpgaad_test_user",
+      "aaaaaaaa-0000-0000-0000-000000000001",
+      "user",
+      false,
+      false
+    ]
+  },
+  {
+    "db": "postgres",
+    "op": "rollback"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select t.rolname as name, t.principaltype as type, t.objectid, t.tenantid,\n  t.ismfa = 1 as ismfa, t.isadmin = 1 as isadmin\nfrom pg_catalog.pgaadauth_list_principals(false) t\nwhere (not $1::boolean or t.rolname <> current_user)\n  and not (t.rolname = any($2::text[]))\norder by t.rolname",
+    "args": [
+      false,
+      []
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "type",
+        "objectid",
+        "tenantid",
+        "ismfa",
+        "isadmin"
+      ],
+      "rows": [
+        [
+          "user1@example.com",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          false,
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as name, a.objectid\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere r.rolname = any($1::text[])",
+    "args": [
+      [
+        "azpgaad_test_user"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "objectid"
+      ],
+      "rows": []
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "select pg_catalog.pgaadauth_create_principal_with_oid($1::text, $2::text, $3::text, $4::boolean, $5::boolean)",
+    "args": [
+      "azpgaad_test_user",
+      "aaaaaaaa-0000-0000-0000-000000000001",
+      "user",
+      false,
+      false
+    ]
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as name, a.objectid\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere r.rolname = any($1::text[])",
+    "args": [
+      [
+        "azpgaad_test_user"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "objectid"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_user",
+          "aaaaaaaa-0000-0000-0000-000000000001"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as name, a.objectid\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere r.rolname = any($1::text[])",
+    "args": [
+      [
+        "azpgaad_test_user"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "objectid"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_user",
+          "aaaaaaaa-0000-0000-0000-000000000001"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as name, a.objectid\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere r.rolname = any($1::text[])",
+    "args": [
+      [
+        "azpgaad_test_user"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "objectid"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_user",
+          "aaaaaaaa-0000-0000-0000-000000000001"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select t.rolname as name, t.principaltype as type, t.objectid, t.tenantid,\n  t.ismfa = 1 as ismfa, t.isadmin = 1 as isadmin\nfrom pg_catalog.pgaadauth_list_principals(false) t\nwhere (not $1::boolean or t.rolname <> current_user)\n  and not (t.rolname = any($2::text[]))\norder by t.rolname",
+    "args": [
+      false,
+      []
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "type",
+        "objectid",
+        "tenantid",
+        "ismfa",
+        "isadmin"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_user",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          false,
+          false
+        ],
+        [
+          "user1@example.com",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          false,
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as rolename,\n  (select array_agg(m.rolname::text order by m.rolname)\n   from pg_auth_members am join pg_roles m on m.oid = am.roleid\n   where am.member = r.oid) as memberof,\n  case when $2::text is null then null else\n    (select array_agg(p.p order by p.ord)\n     from unnest(array['CONNECT', 'CREATE', 'TEMPORARY']) with ordinality p(p, ord)\n     where has_database_privilege(r.oid, $2::text, p.p)) end as dbprivileges,\n  a.rolname as aadname, a.principaltype as aadtype, a.objectid as aadobjectid,\n  a.tenantid as aadtenantid, a.isadmin = 1 as aadisadmin\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere $1::boolean or (not starts_with(r.rolname, 'pg_') and not starts_with(r.rolname, 'azure') and r.rolname <> 'replication')\norder by r.rolname",
+    "args": [
+      false,
+      null
+    ],
+    "result": {
+      "columns": [
+        "rolename",
+        "memberof",
+        "dbprivileges",
+        "aadname",
+        "aadtype",
+        "aadobjectid",
+        "aadtenantid",
+        "aadisadmin"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_user",
+          null,
+          null,
+          "azpgaad_test_user",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          false
+        ],
+        [
+          "user1@example.com",
+          [
+            "azpgaad_test_user",
+            "azure_pg_admin"
+          ],
+          null,
+          "user1@example.com",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as name, a.objectid\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere r.rolname = any($1::text[])",
+    "args": [
+      [
+        "azpgaad_test_b1",
+        "azpgaad_test_b2"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "objectid"
+      ],
+      "rows": []
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "select pg_catalog.pgaadauth_create_principal_with_oid($1::text, $2::text, $3::text, $4::boolean, $5::boolean)",
+    "args": [
+      "azpgaad_test_b1",
+      "aaaaaaaa-0000-0000-0000-000000000001",
+      "user",
+      false,
+      false
+    ]
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "select pg_catalog.pgaadauth_create_principal_with_oid($1::text, $2::text, $3::text, $4::boolean, $5::boolean)",
+    "args": [
+      "azpgaad_test_b2",
+      "00000000-0000-0000-0000-000000000001",
+      "user",
+      false,
+      false
+    ],
+    "error": {
+      "code": "0LP01",
+      "message": "Cannot validate Microsoft Entra ID user \"azpgaad_test_b2\" with OID \"00000000-0000-0000-0000-000000000001\" because the OID isn't found in the tenant.\nMake sure it's correct and retry."
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "rollback"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select t.rolname as name, t.principaltype as type, t.objectid, t.tenantid,\n  t.ismfa = 1 as ismfa, t.isadmin = 1 as isadmin\nfrom pg_catalog.pgaadauth_list_principals(false) t\nwhere (not $1::boolean or t.rolname <> current_user)\n  and not (t.rolname = any($2::text[]))\norder by t.rolname",
+    "args": [
+      false,
+      []
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "type",
+        "objectid",
+        "tenantid",
+        "ismfa",
+        "isadmin"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_user",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          false,
+          false
+        ],
+        [
+          "user1@example.com",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          false,
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "create role azpgaad_test_plain nologin"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "SECURITY LABEL FOR \"pgaadauth\" ON ROLE \"azpgaad_test_plain\" IS 'aadauth,oid=00000000-0000-0000-0000-000000000003,type=user'",
+    "error": {
+      "code": "0LP01",
+      "message": "Cannot validate Microsoft Entra ID user \"azpgaad_test_plain\" with OID \"00000000-0000-0000-0000-000000000003\" because the OID isn't found in the tenant.\nMake sure it's correct and retry."
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "rollback"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "SECURITY LABEL FOR \"pgaadauth\" ON ROLE \"azpgaad_test_plain\" IS 'aadauth,oid=aaaaaaaa-0000-0000-0000-000000000001,type=service'",
+    "error": {
+      "code": "XX000",
+      "message": "Incorrect object type provided for principal. Given object type: 'service', actual object type: 'user'"
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "rollback"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "SECURITY LABEL FOR \"pgaadauth\" ON ROLE \"azpgaad_test_plain\" IS 'aadauth,oid=aaaaaaaa-0000-0000-0000-000000000001,type=user'"
+  },
+  {
+    "db": "postgres",
+    "op": "rollback"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "SECURITY LABEL FOR \"pgaadauth\" ON ROLE \"azpgaad_test_plain\" IS 'aadauth,oid=aaaaaaaa-0000-0000-0000-000000000001,type=user'"
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select t.rolname as name, t.principaltype as type, t.objectid, t.tenantid,\n  t.ismfa = 1 as ismfa, t.isadmin = 1 as isadmin\nfrom pg_catalog.pgaadauth_list_principals(false) t\nwhere (not $1::boolean or t.rolname <> current_user)\n  and not (t.rolname = any($2::text[]))\norder by t.rolname",
+    "args": [
+      false,
+      []
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "type",
+        "objectid",
+        "tenantid",
+        "ismfa",
+        "isadmin"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_plain",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          false,
+          false
+        ],
+        [
+          "azpgaad_test_user",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          false,
+          false
+        ],
+        [
+          "user1@example.com",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          false,
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select t.rolname as name, t.objectid\nfrom pg_catalog.pgaadauth_list_principals(false) t\nwhere lower(t.objectid) = any($1::text[])\norder by t.rolname",
+    "args": [
+      [
+        "00000000-0000-0000-0000-0000000000ff"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "objectid"
+      ],
+      "rows": []
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select t.rolname as name, t.objectid\nfrom pg_catalog.pgaadauth_list_principals(false) t\nwhere lower(t.objectid) = any($1::text[])\norder by t.rolname",
+    "args": [
+      [
+        "00000000-0000-0000-0000-0000000000ff"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "objectid"
+      ],
+      "rows": []
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "DROP ROLE \"azpgaad_test_user\", \"azpgaad_test_plain\""
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "DROP ROLE \"azpgaad_test_user\"",
+    "error": {
+      "code": "42704",
+      "message": "role \"azpgaad_test_user\" does not exist"
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "rollback"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "DROP ROLE IF EXISTS \"azpgaad_test_user\""
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select t.rolname as name, t.principaltype as type, t.objectid, t.tenantid,\n  t.ismfa = 1 as ismfa, t.isadmin = 1 as isadmin\nfrom pg_catalog.pgaadauth_list_principals(false) t\nwhere (not $1::boolean or t.rolname <> current_user)\n  and not (t.rolname = any($2::text[]))\norder by t.rolname",
+    "args": [
+      false,
+      []
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "type",
+        "objectid",
+        "tenantid",
+        "ismfa",
+        "isadmin"
+      ],
+      "rows": [
+        [
+          "user1@example.com",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          false,
+          true
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop role if exists azpgaad_test_user"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop role if exists azpgaad_test_b1"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "drop role if exists azpgaad_test_plain"
+  }
+]

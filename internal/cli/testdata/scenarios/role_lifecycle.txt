@@ -1,0 +1,49 @@
+# Entra role lifecycle: create (incl. server-side object ID validation, batches and
+# idempotency), inspect, label an existing role, drop.
+# ${AZPGAAD_TEST_USER_OID} is a real Entra user object ID (taken from the environment when
+# recording, replaced by a placeholder in the committed files).
+!sql postgres: drop role if exists azpgaad_test_user
+!sql postgres: drop role if exists azpgaad_test_b1
+!sql postgres: drop role if exists azpgaad_test_plain
+
+# The server rejects object IDs it can't find, malformed IDs and the wrong type (no
+# client-side validation needed); --dry-run gets the same checks and changes nothing.
+role create --name azpgaad_test_bad --oid 00000000-0000-0000-0000-000000000001 --type user
+role create --name azpgaad_test_bad --oid ${AZPGAAD_TEST_USER_OID} --type service
+role create --name azpgaad_test_bad --oid 00000000-0000-0000-0000-000000000001 --type user --dry-run
+principal list --query "[?starts_with(name, 'azpgaad_test_')].name"
+
+# Dry run (nothing created), create, then repeat: plain create fails, --if-not-exists
+# skips, a different OID still fails.
+role create --name azpgaad_test_user --oid ${AZPGAAD_TEST_USER_OID} --type user --dry-run
+principal list --query "[?name=='azpgaad_test_user'].name"
+role create --name azpgaad_test_user --oid ${AZPGAAD_TEST_USER_OID} --type user
+role create --name azpgaad_test_user --oid ${AZPGAAD_TEST_USER_OID} --type user
+role create --name azpgaad_test_user --oid ${AZPGAAD_TEST_USER_OID} --type user --if-not-exists
+role create --name azpgaad_test_user --oid 00000000-0000-0000-0000-0000000000a2 --type user --if-not-exists
+principal list --query "[?name=='azpgaad_test_user'].{name: name, type: type, isAdmin: isAdmin, isMfa: isMfa}"
+role list --query "[?roleName=='azpgaad_test_user'].{roleName: roleName, memberOf: memberOf, aadType: aad.type}"
+
+# A batch is one transaction: one bad object ID means nothing is created.
+role create --principals '[{"name":"azpgaad_test_b1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user"},{"name":"azpgaad_test_b2","oid":"00000000-0000-0000-0000-000000000001","type":"user"}]'
+principal list --query "[?starts_with(name, 'azpgaad_test_b')].name"
+
+# Label an existing (non-Entra) role; the server validates the object ID here too.
+!sql postgres: create role azpgaad_test_plain nologin
+role enable-oid --name azpgaad_test_plain --oid 00000000-0000-0000-0000-000000000003 --type user
+role enable-oid --name azpgaad_test_plain --oid not-a-guid --type user
+role enable-oid --name azpgaad_test_plain --oid ${AZPGAAD_TEST_USER_OID} --type service --dry-run
+role enable-oid --name azpgaad_test_plain --oid ${AZPGAAD_TEST_USER_OID} --type user --dry-run
+role enable-oid --name azpgaad_test_plain --oid ${AZPGAAD_TEST_USER_OID} --type user
+principal list --query "[?name=='azpgaad_test_plain'].{name: name, type: type}"
+
+# Drop: by unknown object ID (error, then --if-exists), by names (atomic), then idempotent.
+role drop --oid 00000000-0000-0000-0000-0000000000ff --yes
+role drop --oid 00000000-0000-0000-0000-0000000000ff --if-exists --yes
+role drop --names '["azpgaad_test_user","azpgaad_test_plain"]' --yes
+role drop --name azpgaad_test_user --yes
+role drop --name azpgaad_test_user --if-exists --yes
+principal list --query "[?starts_with(name, 'azpgaad_test_')].name"
+!sql postgres: drop role if exists azpgaad_test_user
+!sql postgres: drop role if exists azpgaad_test_b1
+!sql postgres: drop role if exists azpgaad_test_plain

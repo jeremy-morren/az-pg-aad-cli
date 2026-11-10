@@ -1,0 +1,55 @@
+$ azpgaad server info --query "{major: major, minor: minor, pgaadauth: pgaadauthVersion, database: database}"
+exit 0
+--- stdout
+{
+  "database": "postgres",
+  "major": 18,
+  "minor": 6,
+  "pgaadauth": "1.13"
+}
+
+$ azpgaad server info --query currentUser -o tsv
+exit 0
+--- stdout
+user1@example.com
+
+$ azpgaad db list --query "[?name=='postgres']"
+exit 0
+--- stdout
+[
+  {
+    "name": "postgres",
+    "owner": "azure_pg_admin"
+  }
+]
+
+$ azpgaad schema list --database postgres
+exit 0
+--- stdout
+[
+  {
+    "name": "public",
+    "owner": "azure_pg_admin"
+  }
+]
+
+$ azpgaad principal list --query "length(@) > `0`"
+exit 0
+--- stdout
+true
+
+$ azpgaad principal list --exclude-self --exclude-names '["azpgaad_test_nobody"]' --query "[?starts_with(name, 'azpgaad_test_')]"
+exit 0
+--- stdout
+[]
+
+$ azpgaad role list --all --query "[?roleName=='azure_pg_admin'].{name: roleName, aad: aad}"
+exit 0
+--- stdout
+[
+  {
+    "aad": null,
+    "name": "azure_pg_admin"
+  }
+]
+

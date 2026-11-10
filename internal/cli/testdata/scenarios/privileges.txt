@@ -1,0 +1,64 @@
+# Privileges and ownership across databases: the postgres database (where pgaadauth lives)
+# and a scratch database (where it doesn't), using an Entra role created from postgres.
+!sql postgres: drop database if exists azpgaad_test_db with (force)
+!sql postgres: drop role if exists azpgaad_test_app
+!sql postgres: drop role if exists azpgaad_test_owner
+!sql postgres: drop role if exists azpgaad_test_entra
+!sql postgres: create database azpgaad_test_db
+!sql postgres: create role azpgaad_test_owner nologin
+!sql postgres: create role azpgaad_test_app nologin
+!sql azpgaad_test_db: create schema app
+!sql azpgaad_test_db: create table app.t1 (id int generated always as identity)
+!sql azpgaad_test_db: create view app.v1 as select * from app.t1
+!sql azpgaad_test_db: create function app.f1(i int) returns int language sql as 'select i'
+!sql azpgaad_test_db: create procedure app.p1() language sql as 'select 1'
+!sql azpgaad_test_db: create aggregate app.sum2(int) (sfunc = int4pl, stype = int)
+
+# An Entra role (pgaadauth only exists in postgres; the tool always creates it there),
+# then given privileges in both databases.
+role create --name azpgaad_test_entra --oid ${AZPGAAD_TEST_USER_OID} --type user
+db grant --names '["azpgaad_test_entra","azpgaad_test_app"]' --privilege CONNECT --database postgres
+db grant --names '["azpgaad_test_entra","azpgaad_test_app"]' --privileges '["CONNECT","TEMP"]' --database azpgaad_test_db
+schema grant --name azpgaad_test_entra --privilege USAGE --schema public --database postgres
+schema grant --name azpgaad_test_entra --privilege USAGE --database azpgaad_test_db
+privileges list --names '["azpgaad_test_entra","azpgaad_test_app"]' --database postgres
+privileges list --names '["azpgaad_test_entra","azpgaad_test_app","public"]' --database azpgaad_test_db
+privileges list --name azpgaad_test_entra --level schema --database postgres
+role list --database azpgaad_test_db --query "[?starts_with(roleName, 'azpgaad_test_')].{roleName: roleName, dbPrivileges: dbPrivileges, entra: aad != null}"
+
+# Schema, table and default privileges in the scratch database.
+schema list --database azpgaad_test_db
+schema grant --name azpgaad_test_app --privilege USAGE --database azpgaad_test_db
+schema grant --name azpgaad_test_app --privilege USAGE --schema missing --database azpgaad_test_db
+table grant --name azpgaad_test_app --privileges '["SELECT","INSERT"]' --database azpgaad_test_db
+table grant --name azpgaad_test_app --privilege UPDATE --table v1 --database azpgaad_test_db
+table grant --name azpgaad_test_app --privilege SELECT --table nope --database azpgaad_test_db
+default-privileges grant --name azpgaad_test_app --privilege SELECT --for-role azpgaad_test_owner --database azpgaad_test_db
+role grant --name azpgaad_test_app --role azpgaad_test_owner
+privileges list --name azpgaad_test_app --level schema --database azpgaad_test_db
+privileges list --name azpgaad_test_app --level table --database azpgaad_test_db
+privileges list --name azpgaad_test_app --level default --database azpgaad_test_db
+
+# Ownership: list, dry run, reassign (needs temporary membership grants), re-run is a no-op.
+owner list --database azpgaad_test_db --query "[].[type, schema, name, args]" -o tsv
+owner reassign --database azpgaad_test_db --to azpgaad_test_owner --dry-run --query "{reassigned: reassigned, statements: statements}"
+owner reassign --database azpgaad_test_db --to azpgaad_test_owner --query "{reassigned: reassigned, count: length(statements)}"
+owner list --database azpgaad_test_db --query "[].[type, name, owner]" -o tsv
+owner reassign --database azpgaad_test_db --to azpgaad_test_owner
+
+# Revoke and clean up: drop fails while privileges remain; --if-exists skips missing roles.
+role drop --name azpgaad_test_app --yes
+role revoke --name azpgaad_test_app --role azpgaad_test_owner
+role revoke-all --names '["azpgaad_test_app","azpgaad_test_gone"]' --database azpgaad_test_db --yes
+role revoke-all --names '["azpgaad_test_app","azpgaad_test_entra","azpgaad_test_gone"]' --database azpgaad_test_db --yes --if-exists
+role revoke-all --names '["azpgaad_test_app","azpgaad_test_entra"]' --database postgres --yes
+table revoke --names '["azpgaad_test_app","azpgaad_test_gone"]' --privilege ALL --database azpgaad_test_db --if-exists
+default-privileges revoke --name azpgaad_test_app --privilege SELECT --for-role azpgaad_test_owner --database azpgaad_test_db
+privileges list --names '["azpgaad_test_app","azpgaad_test_entra"]' --database postgres
+privileges list --name azpgaad_test_app --level table --database azpgaad_test_db
+!sql postgres: grant azpgaad_test_owner to current_user
+!sql postgres: drop database azpgaad_test_db with (force)
+role drop --names '["azpgaad_test_app","azpgaad_test_owner","azpgaad_test_entra"]' --yes
+!sql postgres: drop role if exists azpgaad_test_app
+!sql postgres: drop role if exists azpgaad_test_owner
+!sql postgres: drop role if exists azpgaad_test_entra

@@ -1,0 +1,543 @@
+! sql postgres: drop database if exists azpgaad_test_db with (force)
+
+! sql postgres: drop role if exists azpgaad_test_app
+
+! sql postgres: drop role if exists azpgaad_test_owner
+
+! sql postgres: drop role if exists azpgaad_test_entra
+
+! sql postgres: create database azpgaad_test_db
+
+! sql postgres: create role azpgaad_test_owner nologin
+
+! sql postgres: create role azpgaad_test_app nologin
+
+! sql azpgaad_test_db: create schema app
+
+! sql azpgaad_test_db: create table app.t1 (id int generated always as identity)
+
+! sql azpgaad_test_db: create view app.v1 as select * from app.t1
+
+! sql azpgaad_test_db: create function app.f1(i int) returns int language sql as 'select i'
+
+! sql azpgaad_test_db: create procedure app.p1() language sql as 'select 1'
+
+! sql azpgaad_test_db: create aggregate app.sum2(int) (sfunc = int4pl, stype = int)
+
+$ azpgaad role create --name azpgaad_test_entra --oid aaaaaaaa-0000-0000-0000-000000000001 --type user
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "principals": [
+    {
+      "name": "azpgaad_test_entra",
+      "oid": "aaaaaaaa-0000-0000-0000-000000000001",
+      "created": true
+    }
+  ]
+}
+
+$ azpgaad db grant --names '["azpgaad_test_entra","azpgaad_test_app"]' --privilege CONNECT --database postgres
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": [
+    "GRANT CONNECT ON DATABASE \"postgres\" TO \"azpgaad_test_entra\", \"azpgaad_test_app\""
+  ]
+}
+
+$ azpgaad db grant --names '["azpgaad_test_entra","azpgaad_test_app"]' --privileges '["CONNECT","TEMP"]' --database azpgaad_test_db
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": [
+    "GRANT CONNECT, TEMPORARY ON DATABASE \"azpgaad_test_db\" TO \"azpgaad_test_entra\", \"azpgaad_test_app\""
+  ]
+}
+
+$ azpgaad schema grant --name azpgaad_test_entra --privilege USAGE --schema public --database postgres
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": [
+    "GRANT USAGE ON SCHEMA \"public\" TO \"azpgaad_test_entra\""
+  ]
+}
+
+$ azpgaad schema grant --name azpgaad_test_entra --privilege USAGE --database azpgaad_test_db
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "azpgaad_test_db",
+  "statements": [
+    "GRANT USAGE ON SCHEMA \"app\" TO \"azpgaad_test_entra\"",
+    "GRANT USAGE ON SCHEMA \"public\" TO \"azpgaad_test_entra\""
+  ]
+}
+
+$ azpgaad privileges list --names '["azpgaad_test_entra","azpgaad_test_app"]' --database postgres
+exit 0
+--- stdout
+[
+  {
+    "role": "azpgaad_test_entra",
+    "database": "postgres",
+    "privileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ]
+  },
+  {
+    "role": "azpgaad_test_app",
+    "database": "postgres",
+    "privileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ]
+  }
+]
+
+$ azpgaad privileges list --names '["azpgaad_test_entra","azpgaad_test_app","public"]' --database azpgaad_test_db
+exit 0
+--- stdout
+[
+  {
+    "role": "azpgaad_test_entra",
+    "database": "azpgaad_test_db",
+    "privileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ]
+  },
+  {
+    "role": "azpgaad_test_app",
+    "database": "azpgaad_test_db",
+    "privileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ]
+  },
+  {
+    "role": "public",
+    "database": "azpgaad_test_db",
+    "privileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ]
+  }
+]
+
+$ azpgaad privileges list --name azpgaad_test_entra --level schema --database postgres
+exit 0
+--- stdout
+[
+  {
+    "role": "azpgaad_test_entra",
+    "schema": "public",
+    "privileges": [
+      "USAGE"
+    ]
+  }
+]
+
+$ azpgaad role list --database azpgaad_test_db --query "[?starts_with(roleName, 'azpgaad_test_')].{roleName: roleName, dbPrivileges: dbPrivileges, entra: aad != null}"
+exit 0
+--- stdout
+[
+  {
+    "dbPrivileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ],
+    "entra": false,
+    "roleName": "azpgaad_test_app"
+  },
+  {
+    "dbPrivileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ],
+    "entra": true,
+    "roleName": "azpgaad_test_entra"
+  },
+  {
+    "dbPrivileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ],
+    "entra": false,
+    "roleName": "azpgaad_test_owner"
+  }
+]
+
+$ azpgaad schema list --database azpgaad_test_db
+exit 0
+--- stdout
+[
+  {
+    "name": "app",
+    "owner": "user1@example.com"
+  },
+  {
+    "name": "public",
+    "owner": "azure_pg_admin"
+  }
+]
+
+$ azpgaad schema grant --name azpgaad_test_app --privilege USAGE --database azpgaad_test_db
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "azpgaad_test_db",
+  "statements": [
+    "GRANT USAGE ON SCHEMA \"app\" TO \"azpgaad_test_app\"",
+    "GRANT USAGE ON SCHEMA \"public\" TO \"azpgaad_test_app\""
+  ]
+}
+
+$ azpgaad schema grant --name azpgaad_test_app --privilege USAGE --schema missing --database azpgaad_test_db
+exit 1
+--- stderr
+azpgaad: error: schema "missing" does not exist in database azpgaad_test_db
+
+$ azpgaad table grant --name azpgaad_test_app --privileges '["SELECT","INSERT"]' --database azpgaad_test_db
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "azpgaad_test_db",
+  "statements": [
+    "GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA \"app\" TO \"azpgaad_test_app\"",
+    "GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA \"public\" TO \"azpgaad_test_app\""
+  ]
+}
+
+$ azpgaad table grant --name azpgaad_test_app --privilege UPDATE --table v1 --database azpgaad_test_db
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "azpgaad_test_db",
+  "statements": [
+    "GRANT UPDATE ON TABLE \"app\".\"v1\" TO \"azpgaad_test_app\""
+  ]
+}
+
+$ azpgaad table grant --name azpgaad_test_app --privilege SELECT --table nope --database azpgaad_test_db
+exit 1
+--- stderr
+azpgaad: error: table "nope" not found in schema(s) app, public of database azpgaad_test_db
+
+$ azpgaad default-privileges grant --name azpgaad_test_app --privilege SELECT --for-role azpgaad_test_owner --database azpgaad_test_db
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "azpgaad_test_db",
+  "statements": [
+    "ALTER DEFAULT PRIVILEGES FOR ROLE \"azpgaad_test_owner\" IN SCHEMA \"app\" GRANT SELECT ON TABLES TO \"azpgaad_test_app\"",
+    "ALTER DEFAULT PRIVILEGES FOR ROLE \"azpgaad_test_owner\" IN SCHEMA \"public\" GRANT SELECT ON TABLES TO \"azpgaad_test_app\""
+  ]
+}
+
+$ azpgaad role grant --name azpgaad_test_app --role azpgaad_test_owner
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": [
+    "GRANT \"azpgaad_test_owner\" TO \"azpgaad_test_app\""
+  ]
+}
+
+$ azpgaad privileges list --name azpgaad_test_app --level schema --database azpgaad_test_db
+exit 0
+--- stdout
+[
+  {
+    "role": "azpgaad_test_app",
+    "schema": "app",
+    "privileges": [
+      "USAGE"
+    ]
+  },
+  {
+    "role": "azpgaad_test_app",
+    "schema": "public",
+    "privileges": [
+      "USAGE"
+    ]
+  }
+]
+
+$ azpgaad privileges list --name azpgaad_test_app --level table --database azpgaad_test_db
+exit 0
+--- stdout
+[
+  {
+    "role": "azpgaad_test_app",
+    "schema": "app",
+    "table": "t1",
+    "privileges": [
+      "SELECT",
+      "INSERT"
+    ]
+  },
+  {
+    "role": "azpgaad_test_app",
+    "schema": "app",
+    "table": "v1",
+    "privileges": [
+      "SELECT",
+      "INSERT",
+      "UPDATE"
+    ]
+  }
+]
+
+$ azpgaad privileges list --name azpgaad_test_app --level default --database azpgaad_test_db
+exit 0
+--- stdout
+[
+  {
+    "owner": "azpgaad_test_owner",
+    "schema": "app",
+    "objectType": "tables",
+    "grantee": "azpgaad_test_app",
+    "privilege": "SELECT"
+  },
+  {
+    "owner": "azpgaad_test_owner",
+    "schema": "public",
+    "objectType": "tables",
+    "grantee": "azpgaad_test_app",
+    "privilege": "SELECT"
+  }
+]
+
+$ azpgaad owner list --database azpgaad_test_db --query "[].[type, schema, name, args]" -o tsv
+exit 0
+--- stdout
+database		azpgaad_test_db	
+schema	app	app	
+schema	public	public	
+table	app	t1	
+view	app	v1	
+function	app	f1	i integer
+procedure	app	p1	
+aggregate	app	sum2	integer
+
+$ azpgaad owner reassign --database azpgaad_test_db --to azpgaad_test_owner --dry-run --query "{reassigned: reassigned, statements: statements}"
+exit 0
+--- stdout
+{
+  "reassigned": {
+    "(database)": {
+      "database": 1
+    },
+    "app": {
+      "aggregate": 1,
+      "function": 1,
+      "procedure": 1,
+      "schema": 1,
+      "table": 1,
+      "view": 1
+    }
+  },
+  "statements": [
+    "ALTER DATABASE \"azpgaad_test_db\" OWNER TO \"azpgaad_test_owner\"",
+    "ALTER SCHEMA \"app\" OWNER TO \"azpgaad_test_owner\"",
+    "ALTER TABLE \"app\".\"t1\" OWNER TO \"azpgaad_test_owner\"",
+    "ALTER VIEW \"app\".\"v1\" OWNER TO \"azpgaad_test_owner\"",
+    "ALTER ROUTINE \"app\".\"f1\"(i integer) OWNER TO \"azpgaad_test_owner\"",
+    "ALTER ROUTINE \"app\".\"p1\"() OWNER TO \"azpgaad_test_owner\"",
+    "ALTER AGGREGATE \"app\".\"sum2\"(integer) OWNER TO \"azpgaad_test_owner\""
+  ]
+}
+
+$ azpgaad owner reassign --database azpgaad_test_db --to azpgaad_test_owner --query "{reassigned: reassigned, count: length(statements)}"
+exit 0
+--- stdout
+{
+  "count": 7,
+  "reassigned": {
+    "(database)": {
+      "database": 1
+    },
+    "app": {
+      "aggregate": 1,
+      "function": 1,
+      "procedure": 1,
+      "schema": 1,
+      "table": 1,
+      "view": 1
+    }
+  }
+}
+
+$ azpgaad owner list --database azpgaad_test_db --query "[].[type, name, owner]" -o tsv
+exit 0
+--- stdout
+database	azpgaad_test_db	azpgaad_test_owner
+schema	app	azpgaad_test_owner
+schema	public	azure_pg_admin
+table	t1	azpgaad_test_owner
+view	v1	azpgaad_test_owner
+function	f1	azpgaad_test_owner
+procedure	p1	azpgaad_test_owner
+aggregate	sum2	azpgaad_test_owner
+
+$ azpgaad owner reassign --database azpgaad_test_db --to azpgaad_test_owner
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "azpgaad_test_db",
+  "to": "azpgaad_test_owner",
+  "reassigned": {},
+  "statements": []
+}
+
+$ azpgaad role drop --name azpgaad_test_app --yes
+exit 1
+--- stderr
+azpgaad: error: DROP ROLE "azpgaad_test_app": role "azpgaad_test_app" cannot be dropped because some objects depend on it (SQLSTATE 2BP01)
+DETAIL: privileges for database postgres
+privileges for database azpgaad_test_db
+6 objects in database azpgaad_test_db
+The role still owns objects or holds privileges: see 'azpgaad owner reassign' and 'azpgaad role revoke-all'
+
+$ azpgaad role revoke --name azpgaad_test_app --role azpgaad_test_owner
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": [
+    "REVOKE \"azpgaad_test_owner\" FROM \"azpgaad_test_app\""
+  ]
+}
+
+$ azpgaad role revoke-all --names '["azpgaad_test_app","azpgaad_test_gone"]' --database azpgaad_test_db --yes
+exit 1
+--- stderr
+azpgaad: warning: PUBLIC has CONNECT on database azpgaad_test_db, so revoking CONNECT from individual roles does not stop them connecting (REVOKE CONNECT ON DATABASE "azpgaad_test_db" FROM PUBLIC to change that)
+azpgaad: error: REVOKE ALL PRIVILEGES ON DATABASE "azpgaad_test_db" FROM "azpgaad_test_app", "azpgaad_test_gone": role "azpgaad_test_gone" does not exist (SQLSTATE 42704)
+
+$ azpgaad role revoke-all --names '["azpgaad_test_app","azpgaad_test_entra","azpgaad_test_gone"]' --database azpgaad_test_db --yes --if-exists
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "azpgaad_test_db",
+  "statements": [
+    "REVOKE ALL PRIVILEGES ON DATABASE \"azpgaad_test_db\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\"",
+    "REVOKE ALL ON SCHEMA \"app\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\"",
+    "REVOKE ALL ON SCHEMA \"public\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\""
+  ],
+  "skipped": [
+    "role:azpgaad_test_gone"
+  ]
+}
+--- stderr
+azpgaad: warning: PUBLIC has CONNECT on database azpgaad_test_db, so revoking CONNECT from individual roles does not stop them connecting (REVOKE CONNECT ON DATABASE "azpgaad_test_db" FROM PUBLIC to change that)
+
+$ azpgaad role revoke-all --names '["azpgaad_test_app","azpgaad_test_entra"]' --database postgres --yes
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": [
+    "REVOKE ALL PRIVILEGES ON DATABASE \"postgres\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\"",
+    "REVOKE ALL ON SCHEMA \"public\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\""
+  ]
+}
+--- stderr
+azpgaad: warning: PUBLIC has CONNECT on database postgres, so revoking CONNECT from individual roles does not stop them connecting (REVOKE CONNECT ON DATABASE "postgres" FROM PUBLIC to change that)
+
+$ azpgaad table revoke --names '["azpgaad_test_app","azpgaad_test_gone"]' --privilege ALL --database azpgaad_test_db --if-exists
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "azpgaad_test_db",
+  "statements": [
+    "REVOKE ALL ON ALL TABLES IN SCHEMA \"app\" FROM \"azpgaad_test_app\"",
+    "REVOKE ALL ON ALL TABLES IN SCHEMA \"public\" FROM \"azpgaad_test_app\""
+  ],
+  "skipped": [
+    "role:azpgaad_test_gone"
+  ]
+}
+
+$ azpgaad default-privileges revoke --name azpgaad_test_app --privilege SELECT --for-role azpgaad_test_owner --database azpgaad_test_db
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "azpgaad_test_db",
+  "statements": [
+    "ALTER DEFAULT PRIVILEGES FOR ROLE \"azpgaad_test_owner\" IN SCHEMA \"app\" REVOKE SELECT ON TABLES FROM \"azpgaad_test_app\"",
+    "ALTER DEFAULT PRIVILEGES FOR ROLE \"azpgaad_test_owner\" IN SCHEMA \"public\" REVOKE SELECT ON TABLES FROM \"azpgaad_test_app\""
+  ]
+}
+
+$ azpgaad privileges list --names '["azpgaad_test_app","azpgaad_test_entra"]' --database postgres
+exit 0
+--- stdout
+[
+  {
+    "role": "azpgaad_test_app",
+    "database": "postgres",
+    "privileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ]
+  },
+  {
+    "role": "azpgaad_test_entra",
+    "database": "postgres",
+    "privileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ]
+  }
+]
+
+$ azpgaad privileges list --name azpgaad_test_app --level table --database azpgaad_test_db
+exit 0
+--- stdout
+[]
+
+! sql postgres: grant azpgaad_test_owner to current_user
+
+! sql postgres: drop database azpgaad_test_db with (force)
+
+$ azpgaad role drop --names '["azpgaad_test_app","azpgaad_test_owner","azpgaad_test_entra"]' --yes
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": [
+    "DROP ROLE \"azpgaad_test_app\", \"azpgaad_test_owner\", \"azpgaad_test_entra\""
+  ]
+}
+
+! sql postgres: drop role if exists azpgaad_test_app
+
+! sql postgres: drop role if exists azpgaad_test_owner
+
+! sql postgres: drop role if exists azpgaad_test_entra
+
