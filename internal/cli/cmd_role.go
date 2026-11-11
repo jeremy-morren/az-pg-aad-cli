@@ -184,8 +184,42 @@ func dryRunTx(ctx context.Context, s pg.Session, fn func(pg.Executor) error) err
 	return err
 }
 
+// labelStatement maps an existing role to p's Microsoft Entra object (what enable-oid runs).
+func labelStatement(p principal) string {
+	label := fmt.Sprintf("aadauth,oid=%s,type=%s", p.OID, p.Type)
+	if p.Admin {
+		label += ",admin"
+	}
+	return fmt.Sprintf("SECURITY LABEL FOR %s ON ROLE %s IS %s", pg.Ident("pgaadauth"), pg.Ident(p.Name), pg.Literal(label))
+}
+
+// createStatement creates p (pgaadauth_create_principal_with_oid), with the values inlined
+// so it can be shown and echoed as is.
+func createStatement(p principal) string {
+	return pg.Inline(sqlCreatePrincipal, p.Name, p.OID, p.Type, p.Admin, p.MFA)
+}
+
+// Conflict policies for an existing role with the requested name: error, skip (same object
+// ID only), relabel (update the mapping, keeping the role and its privileges) or recreate
+// (drop and create again).
+var onConflictValues = []string{"error", "skip", "relabel", "recreate"}
+
+const docOnConflict = `--on-conflict decides what happens when a role with the name already exists:
+  error     (default) fail
+  skip      leave it if it's an Entra role with the same object ID; fail otherwise
+            (same as --if-not-exists)
+  relabel   if the object ID differs (e.g. a managed identity deleted and recreated with
+            the same name, which gives it a new object ID), or the role isn't an Entra
+            role yet, update the mapping with SECURITY LABEL (what enable-oid does). The
+            role keeps its memberships, privileges and owned objects. Admin is taken
+            from --admin; --mfa can't be changed this way.
+  recreate  drop the role and create it again. Fails if it still owns objects or holds
+            privileges (see 'role revoke-all' and 'owner reassign'); relabel avoids that.
+Roles with the same object ID are left alone by skip, relabel and recreate.`
+
 func (a *App) roleCreateCommand() *cobra.Command {
 	var ifNotExists, dryRun bool
+	var onConflict string
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create Microsoft Entra roles from object IDs (pgaadauth_create_principal_with_oid)",
@@ -208,24 +242,37 @@ Runs in the postgres database, where the pgaadauth functions live.
 All principals are created in one transaction: if any fails, none is created.
 --dry-run runs the creation and rolls it back, so every object ID is checked by the
 server without changing anything.
+
+` + docOnConflict + `
 ` + docsSeeAlso,
 		Example: `  azpgaad role create --name my-app --oid 00000000-0000-0000-0000-000000000000 --type service
-  azpgaad role create --if-not-exists --principals '[{"name":"a","oid":"…","type":"user"}]'`,
+  azpgaad role create --if-not-exists --principals '[{"name":"a","oid":"…","type":"user"}]'
+  azpgaad role create --name my-app --oid <new object ID> --type service --on-conflict relabel`,
 		Args: cobra.NoArgs,
 	}
 	pf := a.addPrincipalFlags(cmd, true)
-	cmd.Flags().BoolVar(&ifNotExists, "if-not-exists", false, "skip roles that already exist with the same object ID")
+	cmd.Flags().BoolVar(&ifNotExists, "if-not-exists", false, "skip roles that already exist with the same object ID (same as --on-conflict skip)")
+	cmd.Flags().StringVar(&onConflict, "on-conflict", "error", "when the role exists: error, skip, relabel or recreate (see --help)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "create in a transaction and roll back: the server checks everything, nothing changes")
+	cmd.MarkFlagsMutuallyExclusive("if-not-exists", "on-conflict")
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
+		if ifNotExists {
+			onConflict = "skip"
+		}
+		if !contains(onConflictValues, onConflict) {
+			return usageErrorf("--on-conflict must be one of %s", strings.Join(onConflictValues, ", "))
+		}
 		list, err := a.principalValues(cmd, pf)
 		if err != nil {
 			return err
 		}
+		// action: created, exists (left alone), relabelled or recreated. In a dry run it's
+		// what would happen.
 		type result struct {
-			Name    string `json:"name"`
-			OID     string `json:"oid"`
-			Created bool   `json:"created"`
+			Name   string `json:"name"`
+			OID    string `json:"oid"`
+			Action string `json:"action"`
 		}
 		type output struct {
 			DryRun     bool     `json:"dryRun"`
@@ -254,29 +301,56 @@ server without changing anything.
 		for _, r := range existingRows {
 			existing[r.Name] = r.ObjectID
 		}
-		var todo []principal
+		type step struct {
+			p      principal
+			action string
+		}
+		var todo []step
 		for _, p := range list {
 			oid, exists := existing[p.Name]
+			sameOID := exists && oid != nil && strings.EqualFold(*oid, p.OID)
 			switch {
 			case !exists:
-				todo = append(todo, p)
-			case !ifNotExists:
-				return fmt.Errorf("role %q already exists (use --if-not-exists to skip it)", p.Name)
+				todo = append(todo, step{p, "created"})
+			case onConflict == "error":
+				return fmt.Errorf("role %q already exists (use --if-not-exists to skip it, or --on-conflict)", p.Name)
+			case sameOID:
+				out.Principals = append(out.Principals, result{p.Name, p.OID, "exists"})
+			case onConflict == "relabel":
+				if p.MFA {
+					a.warn(fmt.Sprintf("role %q: --mfa is not applied when relabelling an existing role", p.Name))
+				}
+				todo = append(todo, step{p, "relabelled"})
+			case onConflict == "recreate":
+				todo = append(todo, step{p, "recreated"})
 			case oid == nil:
-				return fmt.Errorf("role %q already exists but is not a Microsoft Entra role", p.Name)
-			case !strings.EqualFold(*oid, p.OID):
-				return fmt.Errorf("role %q already exists with object ID %s, not %s", p.Name, *oid, p.OID)
+				return fmt.Errorf("role %q already exists but is not a Microsoft Entra role (--on-conflict relabel maps it to the object ID)", p.Name)
 			default:
-				out.Principals = append(out.Principals, result{p.Name, p.OID, false})
+				return fmt.Errorf("role %q already exists with object ID %s, not %s (--on-conflict relabel updates the mapping)", p.Name, *oid, p.OID)
 			}
 		}
 		create := func(ex pg.Executor) error {
-			for _, p := range todo {
-				if err := ex.Exec(ctx, sqlCreatePrincipal, p.Name, p.OID, p.Type, p.Admin, p.MFA); err != nil {
-					return fmt.Errorf("create %q (%s %s): %w", p.Name, p.Type, p.OID, err)
+			for _, st := range todo {
+				p := st.p
+				switch st.action {
+				case "relabelled":
+					if err := ex.Exec(ctx, labelStatement(p)); err != nil {
+						return fmt.Errorf("relabel %q (%s %s): %w", p.Name, p.Type, p.OID, err)
+					}
+				case "recreated":
+					if err := ex.Exec(ctx, "DROP ROLE "+pg.Ident(p.Name)); err != nil {
+						if pe := pg.AsError(err); pe != nil && pe.Code == "2BP01" {
+							return fmt.Errorf("recreate %q: %w\nThe role still owns objects or holds privileges; --on-conflict relabel keeps them", p.Name, err)
+						}
+						return fmt.Errorf("recreate %q: %w", p.Name, err)
+					}
+					fallthrough
+				default:
+					if err := ex.Exec(ctx, sqlCreatePrincipal, p.Name, p.OID, p.Type, p.Admin, p.MFA); err != nil {
+						return fmt.Errorf("create %q (%s %s): %w", p.Name, p.Type, p.OID, err)
+					}
 				}
-				// In a dry run, "created" means it would be created.
-				out.Principals = append(out.Principals, result{p.Name, p.OID, true})
+				out.Principals = append(out.Principals, result{p.Name, p.OID, st.action})
 			}
 			return nil
 		}
@@ -329,11 +403,7 @@ server checks every object ID without changing anything.
 		}
 		var stmts []string
 		for _, p := range list {
-			label := fmt.Sprintf("aadauth,oid=%s,type=%s", p.OID, p.Type)
-			if p.Admin {
-				label += ",admin"
-			}
-			stmts = append(stmts, fmt.Sprintf("SECURITY LABEL FOR %s ON ROLE %s IS %s", pg.Ident("pgaadauth"), pg.Ident(p.Name), pg.Literal(label)))
+			stmts = append(stmts, labelStatement(p))
 		}
 		if !dryRun || len(stmts) == 0 {
 			return a.execStatements(ctx, aadDatabase, stmts, false)
@@ -492,7 +562,7 @@ func (a *App) roleGrantCommand(grant bool) *cobra.Command {
 		}
 		var stmts []string
 		if len(m) > 0 && len(r) > 0 {
-			stmts = []string{fmt.Sprintf("%s %s %s %s", verb, pg.Idents(r), prep, pg.Idents(m))}
+			stmts = []string{fmt.Sprintf("%s %s %s %s", verb, pg.Idents(r), prep, pg.Grantees(m))}
 		}
 		return a.execStatements(ctx, aadDatabase, stmts, dryRun, skipped...)
 	}
@@ -501,11 +571,21 @@ func (a *App) roleGrantCommand(grant bool) *cobra.Command {
 
 func (a *App) roleRevokeAllCommand() *cobra.Command {
 	var database string
-	var yes, dryRun bool
+	var yes, dryRun, memberships bool
 	cmd := &cobra.Command{
 		Use:   "revoke-all",
-		Short: "Revoke all database and schema privileges on a database from roles",
-		Args:  cobra.NoArgs,
+		Short: "Revoke all database and schema privileges on a database from roles (and, with --memberships, their role memberships)",
+		Long: `Revokes every privilege on --database itself and on each of its non-system schemas
+from the roles, in one transaction: what you do before dropping them, or to take
+everything away from a principal that is no longer wanted.
+
+--memberships also revokes the roles' memberships, e.g. pg_read_all_data and
+pg_write_all_data (which apply in every database). Memberships in Azure-managed roles
+(azure_pg_admin and other azure* roles, replication) are left alone.
+
+Table privileges and default privileges aren't included: see 'table revoke' and
+'default-privileges revoke'.`,
+		Args: cobra.NoArgs,
 	}
 	names := a.addList(cmd, "name", "names", "role name", true)
 	var ifExists bool
@@ -513,6 +593,7 @@ func (a *App) roleRevokeAllCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&yes, "yes", false, "don't ask for confirmation")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the SQL without running it")
 	cmd.Flags().BoolVar(&ifExists, "if-exists", false, "skip roles that don't exist instead of failing")
+	cmd.Flags().BoolVar(&memberships, "memberships", false, "also revoke the roles' role memberships (e.g. pg_read_all_data)")
 	_ = cmd.MarkFlagRequired("database")
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
@@ -534,9 +615,25 @@ func (a *App) roleRevokeAllCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		stmts := []string{fmt.Sprintf("REVOKE ALL PRIVILEGES ON DATABASE %s FROM %s", pg.Ident(database), pg.Idents(n))}
+		stmts := []string{fmt.Sprintf("REVOKE ALL PRIVILEGES ON DATABASE %s FROM %s", pg.Ident(database), pg.Grantees(n))}
 		for _, s := range schemas {
-			stmts = append(stmts, fmt.Sprintf("REVOKE ALL ON SCHEMA %s FROM %s", pg.Ident(s.Name), pg.Idents(n)))
+			stmts = append(stmts, fmt.Sprintf("REVOKE ALL ON SCHEMA %s FROM %s", pg.Ident(s.Name), pg.Grantees(n)))
+		}
+		if memberships {
+			s, err := a.session(ctx, database)
+			if err != nil {
+				return err
+			}
+			var rows []struct {
+				Member string   `json:"member"`
+				Roles  []string `json:"roles"`
+			}
+			if err := queryInto(ctx, s, &rows, sqlMembershipsOf, n); err != nil {
+				return err
+			}
+			for _, r := range rows {
+				stmts = append(stmts, fmt.Sprintf("REVOKE %s FROM %s", pg.Idents(r.Roles), pg.Ident(r.Member)))
+			}
 		}
 		if err := a.warnPublicConnect(ctx, database); err != nil {
 			return err
@@ -563,8 +660,8 @@ func (a *App) warnPublicConnect(ctx context.Context, database string) error {
 		return err
 	}
 	if public {
-		a.warn(fmt.Sprintf("PUBLIC has CONNECT on database %s, so revoking CONNECT from individual roles does not stop them connecting (REVOKE CONNECT ON DATABASE %s FROM PUBLIC to change that)",
-			database, pg.Ident(database)))
+		a.warn(fmt.Sprintf("PUBLIC has CONNECT on database %s, so revoking CONNECT from individual roles does not stop them connecting (to change that: azpgaad db revoke --name PUBLIC --privilege CONNECT --database %s)",
+			database, shellQuote(database)))
 	}
 	return nil
 }

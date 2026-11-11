@@ -1,0 +1,374 @@
+! sql postgres: drop database if exists azpgaad_test_applydb with (force)
+
+! sql postgres: drop role if exists azpgaad_test_ap1
+
+! sql postgres: drop role if exists azpgaad_test_ap2
+
+! sql postgres: drop role if exists azpgaad_test_ap3
+
+! sql postgres: create database azpgaad_test_applydb
+
+! sql postgres: create role azpgaad_test_ap3 nologin
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","rolez":[]}]}'
+exit 2
+--- stderr
+azpgaad: error: --spec: expected {"principals": [{"name", "oid", "type", "roles", "databases"}]}: json: unknown field "rolez"
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","databases":{"azpgaad_test_applydb":["SELECT"]}}]}'
+exit 2
+--- stderr
+azpgaad: error: --spec: azpgaad_test_ap1: databases: azpgaad_test_applydb: "SELECT" is not one of CONNECT, CREATE, TEMPORARY, ALL
+
+$ azpgaad apply --spec '{"principals":[]}' --prune sometimes
+exit 2
+--- stderr
+azpgaad: error: --prune must be revoke or drop
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"00000000-0000-0000-0000-000000000001","type":"user"}]}' --dry-run
+exit 1
+--- stderr
+azpgaad: error: + azpgaad_test_ap1: principal (user 00000000-0000-0000-0000-000000000001): Cannot validate Microsoft Entra ID user "azpgaad_test_ap1" with OID "00000000-0000-0000-0000-000000000001" because the OID isn't found in the tenant.
+Make sure it's correct and retry. (SQLSTATE 0LP01)
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","roles":["azpgaad_test_nope"]}]}' --dry-run
+exit 1
+--- stderr
+azpgaad: error: + azpgaad_test_ap1: member of azpgaad_test_nope: role "azpgaad_test_nope" does not exist (SQLSTATE 42704)
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","databases":{"azpgaad_test_nodb":["CONNECT"]}}]}' --dry-run
+exit 1
+--- stderr
+azpgaad: error: + azpgaad_test_ap1: CONNECT on database azpgaad_test_nodb: database "azpgaad_test_nodb" does not exist (SQLSTATE 3D000)
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","roles":["pg_read_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT","TEMP"]}},{"name":"azpgaad_test_ap2","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","roles":["pg_read_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}}]}' --dry-run
+exit 0
+--- stdout
+[
+  {
+    "op": "+",
+    "principal": "azpgaad_test_ap1",
+    "what": "principal (user aaaaaaaa-0000-0000-0000-000000000001)",
+    "sql": "select pg_catalog.pgaadauth_create_principal_with_oid('azpgaad_test_ap1'::text, 'aaaaaaaa-0000-0000-0000-000000000001'::text, 'user'::text, false::boolean, false::boolean)"
+  },
+  {
+    "op": "+",
+    "principal": "azpgaad_test_ap2",
+    "what": "principal (user aaaaaaaa-0000-0000-0000-000000000001)",
+    "sql": "select pg_catalog.pgaadauth_create_principal_with_oid('azpgaad_test_ap2'::text, 'aaaaaaaa-0000-0000-0000-000000000001'::text, 'user'::text, false::boolean, false::boolean)"
+  },
+  {
+    "op": "+",
+    "principal": "azpgaad_test_ap1",
+    "what": "member of pg_read_all_data",
+    "sql": "GRANT \"pg_read_all_data\" TO \"azpgaad_test_ap1\""
+  },
+  {
+    "op": "+",
+    "principal": "azpgaad_test_ap1",
+    "what": "CONNECT, TEMPORARY on database azpgaad_test_applydb",
+    "sql": "GRANT CONNECT, TEMPORARY ON DATABASE \"azpgaad_test_applydb\" TO \"azpgaad_test_ap1\""
+  },
+  {
+    "op": "+",
+    "principal": "azpgaad_test_ap2",
+    "what": "member of pg_read_all_data",
+    "sql": "GRANT \"pg_read_all_data\" TO \"azpgaad_test_ap2\""
+  },
+  {
+    "op": "+",
+    "principal": "azpgaad_test_ap2",
+    "what": "CONNECT on database azpgaad_test_applydb",
+    "sql": "GRANT CONNECT ON DATABASE \"azpgaad_test_applydb\" TO \"azpgaad_test_ap2\""
+  }
+]
+--- stderr
+azpgaad: 6 change(s) checked and rolled back (--dry-run)
+
+$ azpgaad principal list --query "[?starts_with(name, 'azpgaad_test_')].name"
+exit 0
+--- stdout
+[]
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","roles":["pg_read_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT","TEMP"]}},{"name":"azpgaad_test_ap2","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","roles":["pg_read_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}}]}' --echo
+exit 0
+--- stdout
+[
+  {
+    "op": "+",
+    "principal": "azpgaad_test_ap1",
+    "what": "principal (user aaaaaaaa-0000-0000-0000-000000000001)",
+    "sql": "select pg_catalog.pgaadauth_create_principal_with_oid('azpgaad_test_ap1'::text, 'aaaaaaaa-0000-0000-0000-000000000001'::text, 'user'::text, false::boolean, false::boolean)"
+  },
+  {
+    "op": "+",
+    "principal": "azpgaad_test_ap2",
+    "what": "principal (user aaaaaaaa-0000-0000-0000-000000000001)",
+    "sql": "select pg_catalog.pgaadauth_create_principal_with_oid('azpgaad_test_ap2'::text, 'aaaaaaaa-0000-0000-0000-000000000001'::text, 'user'::text, false::boolean, false::boolean)"
+  },
+  {
+    "op": "+",
+    "principal": "azpgaad_test_ap1",
+    "what": "member of pg_read_all_data",
+    "sql": "GRANT \"pg_read_all_data\" TO \"azpgaad_test_ap1\""
+  },
+  {
+    "op": "+",
+    "principal": "azpgaad_test_ap1",
+    "what": "CONNECT, TEMPORARY on database azpgaad_test_applydb",
+    "sql": "GRANT CONNECT, TEMPORARY ON DATABASE \"azpgaad_test_applydb\" TO \"azpgaad_test_ap1\""
+  },
+  {
+    "op": "+",
+    "principal": "azpgaad_test_ap2",
+    "what": "member of pg_read_all_data",
+    "sql": "GRANT \"pg_read_all_data\" TO \"azpgaad_test_ap2\""
+  },
+  {
+    "op": "+",
+    "principal": "azpgaad_test_ap2",
+    "what": "CONNECT on database azpgaad_test_applydb",
+    "sql": "GRANT CONNECT ON DATABASE \"azpgaad_test_applydb\" TO \"azpgaad_test_ap2\""
+  }
+]
+--- stderr
+-- [postgres]
+BEGIN;
+select pg_catalog.pgaadauth_create_principal_with_oid('azpgaad_test_ap1'::text, 'aaaaaaaa-0000-0000-0000-000000000001'::text, 'user'::text, false::boolean, false::boolean);
+select pg_catalog.pgaadauth_create_principal_with_oid('azpgaad_test_ap2'::text, 'aaaaaaaa-0000-0000-0000-000000000001'::text, 'user'::text, false::boolean, false::boolean);
+GRANT "pg_read_all_data" TO "azpgaad_test_ap1";
+GRANT CONNECT, TEMPORARY ON DATABASE "azpgaad_test_applydb" TO "azpgaad_test_ap1";
+GRANT "pg_read_all_data" TO "azpgaad_test_ap2";
+GRANT CONNECT ON DATABASE "azpgaad_test_applydb" TO "azpgaad_test_ap2";
+COMMIT;
+azpgaad: 6 change(s) applied
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","roles":["pg_read_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT","TEMP"]}},{"name":"azpgaad_test_ap2","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","roles":["pg_read_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}}]}'
+exit 0
+--- stdout
+[]
+--- stderr
+azpgaad: no changes
+
+$ azpgaad role list --database azpgaad_test_applydb --query "[?starts_with(roleName, 'azpgaad_test_')].{roleName: roleName, memberOf: memberOf, dbPrivileges: dbPrivileges}"
+exit 0
+--- stdout
+[
+  {
+    "dbPrivileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ],
+    "memberOf": [
+      "pg_read_all_data"
+    ],
+    "roleName": "azpgaad_test_ap1"
+  },
+  {
+    "dbPrivileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ],
+    "memberOf": [
+      "pg_read_all_data"
+    ],
+    "roleName": "azpgaad_test_ap2"
+  },
+  {
+    "dbPrivileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ],
+    "memberOf": null,
+    "roleName": "azpgaad_test_ap3"
+  }
+]
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","roles":["pg_write_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}},{"name":"azpgaad_test_ap3","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user"}]}'
+exit 1
+--- stderr
+azpgaad: error: role "azpgaad_test_ap3" already exists and is not a Microsoft Entra role, not aaaaaaaa-0000-0000-0000-000000000001 (see --on-conflict)
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","roles":["pg_write_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}},{"name":"azpgaad_test_ap3","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user"}]}' --on-conflict relabel
+exit 0
+--- stdout
+[
+  {
+    "op": "~",
+    "principal": "azpgaad_test_ap3",
+    "what": "relabel (user aaaaaaaa-0000-0000-0000-000000000001; it is not a Microsoft Entra role)",
+    "sql": "SECURITY LABEL FOR \"pgaadauth\" ON ROLE \"azpgaad_test_ap3\" IS 'aadauth,oid=aaaaaaaa-0000-0000-0000-000000000001,type=user'"
+  },
+  {
+    "op": "+",
+    "principal": "azpgaad_test_ap1",
+    "what": "member of pg_write_all_data",
+    "sql": "GRANT \"pg_write_all_data\" TO \"azpgaad_test_ap1\""
+  }
+]
+--- stderr
+azpgaad: 2 change(s) applied
+
+$ azpgaad principal list --query "[?starts_with(name, 'azpgaad_test_')].name"
+exit 0
+--- stdout
+[
+  "azpgaad_test_ap1",
+  "azpgaad_test_ap2",
+  "azpgaad_test_ap3"
+]
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","roles":["pg_write_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}},{"name":"azpgaad_test_ap3","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user"}]}' --prune revoke --managed-prefix azpgaad_test_
+exit 2
+--- stderr
+azpgaad: error: Apply 4 change(s), 4 of them revokes or drops?: refusing without --yes (no terminal to confirm on)
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","roles":["pg_write_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}},{"name":"azpgaad_test_ap3","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user"}]}' --prune revoke --managed-prefix azpgaad_test_ --dry-run
+exit 0
+--- stdout
+[
+  {
+    "op": "-",
+    "principal": "azpgaad_test_ap1",
+    "what": "member of pg_read_all_data",
+    "sql": "REVOKE \"pg_read_all_data\" FROM \"azpgaad_test_ap1\""
+  },
+  {
+    "op": "-",
+    "principal": "azpgaad_test_ap1",
+    "what": "TEMPORARY on database azpgaad_test_applydb",
+    "sql": "REVOKE TEMPORARY ON DATABASE \"azpgaad_test_applydb\" FROM \"azpgaad_test_ap1\""
+  },
+  {
+    "op": "-",
+    "principal": "azpgaad_test_ap2",
+    "what": "member of pg_read_all_data",
+    "sql": "REVOKE \"pg_read_all_data\" FROM \"azpgaad_test_ap2\""
+  },
+  {
+    "op": "-",
+    "principal": "azpgaad_test_ap2",
+    "what": "CONNECT on database azpgaad_test_applydb",
+    "sql": "REVOKE CONNECT ON DATABASE \"azpgaad_test_applydb\" FROM \"azpgaad_test_ap2\""
+  }
+]
+--- stderr
+azpgaad: 4 change(s) checked and rolled back (--dry-run)
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","roles":["pg_write_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}},{"name":"azpgaad_test_ap3","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user"}]}' --prune revoke --managed-prefix azpgaad_test_ --yes
+exit 0
+--- stdout
+[
+  {
+    "op": "-",
+    "principal": "azpgaad_test_ap1",
+    "what": "member of pg_read_all_data",
+    "sql": "REVOKE \"pg_read_all_data\" FROM \"azpgaad_test_ap1\""
+  },
+  {
+    "op": "-",
+    "principal": "azpgaad_test_ap1",
+    "what": "TEMPORARY on database azpgaad_test_applydb",
+    "sql": "REVOKE TEMPORARY ON DATABASE \"azpgaad_test_applydb\" FROM \"azpgaad_test_ap1\""
+  },
+  {
+    "op": "-",
+    "principal": "azpgaad_test_ap2",
+    "what": "member of pg_read_all_data",
+    "sql": "REVOKE \"pg_read_all_data\" FROM \"azpgaad_test_ap2\""
+  },
+  {
+    "op": "-",
+    "principal": "azpgaad_test_ap2",
+    "what": "CONNECT on database azpgaad_test_applydb",
+    "sql": "REVOKE CONNECT ON DATABASE \"azpgaad_test_applydb\" FROM \"azpgaad_test_ap2\""
+  }
+]
+--- stderr
+azpgaad: 4 change(s) applied
+
+$ azpgaad role list --database azpgaad_test_applydb --query "[?starts_with(roleName, 'azpgaad_test_')].{roleName: roleName, memberOf: memberOf, dbPrivileges: dbPrivileges}"
+exit 0
+--- stdout
+[
+  {
+    "dbPrivileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ],
+    "memberOf": [
+      "pg_write_all_data"
+    ],
+    "roleName": "azpgaad_test_ap1"
+  },
+  {
+    "dbPrivileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ],
+    "memberOf": null,
+    "roleName": "azpgaad_test_ap2"
+  },
+  {
+    "dbPrivileges": [
+      "CONNECT",
+      "TEMPORARY"
+    ],
+    "memberOf": null,
+    "roleName": "azpgaad_test_ap3"
+  }
+]
+
+$ azpgaad apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user","roles":["pg_write_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}},{"name":"azpgaad_test_ap3","oid":"aaaaaaaa-0000-0000-0000-000000000001","type":"user"}]}' --prune drop --managed-prefix azpgaad_test_ --yes
+exit 0
+--- stdout
+[
+  {
+    "op": "-",
+    "principal": "azpgaad_test_ap2",
+    "what": "drop principal",
+    "sql": "DROP ROLE \"azpgaad_test_ap2\""
+  }
+]
+--- stderr
+azpgaad: 1 change(s) applied
+
+$ azpgaad apply --spec '{"principals":[]}' --prune drop --managed-prefix azpgaad_test_ --yes
+exit 0
+--- stdout
+[
+  {
+    "op": "-",
+    "principal": "azpgaad_test_ap1",
+    "what": "CONNECT on database azpgaad_test_applydb",
+    "sql": "REVOKE CONNECT ON DATABASE \"azpgaad_test_applydb\" FROM \"azpgaad_test_ap1\""
+  },
+  {
+    "op": "-",
+    "principal": "azpgaad_test_ap1",
+    "what": "drop principal",
+    "sql": "DROP ROLE \"azpgaad_test_ap1\""
+  },
+  {
+    "op": "-",
+    "principal": "azpgaad_test_ap3",
+    "what": "drop principal",
+    "sql": "DROP ROLE \"azpgaad_test_ap3\""
+  }
+]
+--- stderr
+azpgaad: 3 change(s) applied
+
+$ azpgaad principal list --query "[?starts_with(name, 'azpgaad_test_')].name"
+exit 0
+--- stdout
+[]
+
+! sql postgres: drop database if exists azpgaad_test_applydb with (force)
+
+! sql postgres: drop role if exists azpgaad_test_ap1
+
+! sql postgres: drop role if exists azpgaad_test_ap2
+
+! sql postgres: drop role if exists azpgaad_test_ap3
+

@@ -66,6 +66,7 @@ type globalFlags struct {
 	output    string
 	query     string
 	debug     bool
+	echo      bool
 }
 
 // New returns an App wired to the real process environment.
@@ -177,6 +178,9 @@ func (a *App) Run(args []string) (code int) {
 
 func (a *App) warn(msg string) { fmt.Fprintln(a.Stderr, "azpgaad: warning:", msg) }
 
+// info writes a status line to stderr, keeping stdout for the result.
+func (a *App) info(msg string) { fmt.Fprintln(a.Stderr, "azpgaad:", msg) }
+
 func (a *App) rootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "azpgaad",
@@ -190,19 +194,26 @@ for PostgreSQL flexible server, as a single static binary with no dependencies.
 Start with 'azpgaad login', which writes a token file. Every other command reads the
 token file from --token-file or the PGAADTOKENFILE environment variable (a path).
 
+Without a token file (e.g. in a short-lived CI container), set PGAADSERVER instead: every
+command then gets its own Microsoft Entra token from DefaultAzureCredential and writes
+nothing to disk. Optional: PGAADUSER (else looked up in Microsoft Graph), PGAADDATABASE
+(default postgres), PGAADSSLMODE (default verify-full), PGAADSSLROOTCERT (default system,
+or a PEM file). A token file, if named, takes precedence.
+
 Switches accept --switch, --switch=true|false and --switch:true|false.`,
 	}
 	root.SetVersionTemplate("{{.Version}}\n")
 	pf := root.PersistentFlags()
 	pf.StringVar(&a.globals.tokenFile, "token-file", "", "token file written by 'azpgaad login' (default: $PGAADTOKENFILE)")
-	pf.StringVarP(&a.globals.output, "output", "o", "json", "output format: json (indented), jsonc (compact, one line) or tsv")
+	pf.StringVarP(&a.globals.output, "output", "o", "tsv", "output format: tsv (an object as a 'key: value' list, an array as tab-separated rows), json (indented) or jsonc (compact, one line)")
 	pf.StringVar(&a.globals.query, "query", "", "JMESPath query applied to the JSON result (same as az --query)")
 	pf.BoolVar(&a.globals.debug, "debug", false, "show every SQL statement and its parameter values on stderr")
+	pf.BoolVar(&a.globals.echo, "echo", false, "write each statement that changes something to stderr as SQL as it runs (BEGIN/COMMIT included; --dry-run statements are marked)")
 	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
 		switch a.globals.output {
-		case "json", "jsonc", "tsv":
+		case "tsv", "json", "jsonc":
 		default:
-			return usageErrorf("--output must be json, jsonc or tsv, not %q", a.globals.output)
+			return usageErrorf("--output must be tsv, json or jsonc, not %q", a.globals.output)
 		}
 		return nil
 	}
@@ -220,6 +231,7 @@ Switches accept --switch, --switch=true|false and --switch:true|false.`,
 		a.defaultPrivilegesCommand(),
 		a.principalCommand(),
 		a.roleCommand(),
+		a.applyCommand(),
 		a.privilegesCommand(),
 		a.ownerCommand(),
 	)

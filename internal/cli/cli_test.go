@@ -3,9 +3,16 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -112,7 +119,7 @@ func TestListFlagsAndDryRun(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			code, stdout, stderr := run(t, "", c.stdin, append(c.args, "--dry-run")...)
+			code, stdout, stderr := run(t, "", c.stdin, append(c.args, "--dry-run", "--output", "json")...)
 			if code != ExitOK {
 				t.Fatalf("exit %d: %s", code, stderr)
 			}
@@ -128,7 +135,7 @@ func TestListFlagsAndDryRun(t *testing.T) {
 }
 
 func TestEmptyArrayIsNoOp(t *testing.T) {
-	code, stdout, stderr := run(t, "", "", "role", "grant", "--names", "[]", "--role", "r")
+	code, stdout, stderr := run(t, "", "", "role", "grant", "--names", "[]", "--role", "r", "--output", "json")
 	if code != ExitOK || !strings.Contains(stdout, `"statements": []`) {
 		t.Fatalf("exit %d out %s err %s", code, stdout, stderr)
 	}
@@ -146,13 +153,117 @@ func TestQueryAndTSV(t *testing.T) {
 }
 
 func TestWriteTSV(t *testing.T) {
-	var v any
-	json.Unmarshal([]byte(`[{"b":2,"a":"x","nested":{"k":1},"list":[1],"n":null,"t":true},["p",1.5,null],"s"]`), &v)
-	var buf bytes.Buffer
-	writeTSV(&buf, v)
-	want := "x\t2\t\ttrue\np\t1.5\t\ns\n"
-	if buf.String() != want {
-		t.Fatalf("got %q want %q", buf.String(), want)
+	cases := []struct{ name, in, want string }{
+		// Arrays: one row per element, scalar fields in document order, nested omitted.
+		{"array", `[{"b":2,"a":"x","nested":{"k":1},"list":[1],"n":null,"t":true},["p",1.5,null],"s"]`,
+			"2\tx\t\ttrue\np\t1.5\t\ns\n"},
+		// Arrays of objects: a header row; a field nested in any row is left out of every
+		// row, and a field missing from a row is empty there.
+		{"table", `[{"name":"a","aad":null,"n":1},{"name":"b","aad":{"oid":"x"},"extra":true}]`,
+			"name\tn\textra\na\t1\t\nb\t\ttrue\n"},
+		{"scalar array", `["a","b"]`, "a\nb\n"},
+		{"empty array", `[]`, ""},
+		// Objects: an aligned property list, nested values as compact JSON, no trailing
+		// spaces after an empty value.
+		{"object", `{"server":"s.example.com","user":"alice","n":null,"principals":[{"name":"a"}],"ok":true}`,
+			"server:     s.example.com\nuser:       alice\nn:\nprincipals: [{\"name\":\"a\"}]\nok:         true\n"},
+		{"scalar", `"just text"`, "just text\n"},
+		{"number", `16`, "16\n"},
+		{"null", `null`, ""},
+	}
+	for _, c := range cases {
+		var buf bytes.Buffer
+		if err := writeTSV(&buf, []byte(c.in)); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if buf.String() != c.want {
+			t.Errorf("%s: got %q want %q", c.name, buf.String(), c.want)
+		}
+	}
+}
+
+func TestDefaultOutputIsTSV(t *testing.T) {
+	code, stdout, _ := run(t, "", "", "version")
+	if code != ExitOK || !strings.HasPrefix(stdout, "version:   test\n") {
+		t.Fatalf("default output should be a tsv property list: exit %d %q", code, stdout)
+	}
+}
+
+func TestLoginShow(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token.json")
+	exp := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
+	p := &profile.Profile{
+		V: profile.Version, Server: "s.postgres.database.azure.com", Port: 5432, Database: "postgres",
+		User: "alice@example.com", SSLMode: "verify-full", SSLRootCert: profile.RootCert{Mode: "system"},
+		Auth: profile.Auth{Method: "azure", Token: "SECRET-TOKEN", Expires: exp},
+	}
+	if err := profile.Save(path, p); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := run(t, path, "", "login", "show")
+	want := "source:      token file\n" +
+		"tokenFile:   " + path + "\n" +
+		"server:      s.postgres.database.azure.com\n" +
+		"port:        5432\n" +
+		"database:    postgres\n" +
+		"user:        alice@example.com\n" +
+		"method:      azure\n" +
+		"sslmode:     verify-full\n" +
+		"sslrootcert: system\n" +
+		"expires:     " + exp.Local().Format("2006-01-02 15:04:05 -07:00") + "\n"
+	if code != ExitOK || stdout != want {
+		t.Fatalf("exit %d stderr %q\ngot:\n%s\nwant:\n%s", code, stderr, stdout, want)
+	}
+	if strings.Contains(stdout+stderr, "SECRET") {
+		t.Fatal("login show must not print the token")
+	}
+
+	// Embedded CA: listed by subject; password auth has no expiry.
+	p.SSLRootCert = profile.RootCert{Mode: "pem", PEM: testCAPEM(t, "Test Root CA")}
+	p.Auth = profile.Auth{Method: "pg", Password: "SECRET-PW"}
+	if err := profile.Save(path, p); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, _ = run(t, path, "", "login", "show", "--output", "json")
+	var got loginInfo
+	if err := json.Unmarshal([]byte(stdout), &got); code != ExitOK || err != nil {
+		t.Fatalf("exit %d %v %q", code, err, stdout)
+	}
+	if got.SSLRootCert != "embedded" || len(got.SSLRootCertSubjects) != 1 || got.SSLRootCertSubjects[0] != "CN=Test Root CA" ||
+		got.Expires != "" || strings.Contains(stdout, "SECRET") {
+		t.Fatalf("unexpected: %s", stdout)
+	}
+
+	code, _, stderr = run(t, filepath.Join(dir, "missing.json"), "", "login", "show")
+	if code != ExitNotLoggedIn {
+		t.Fatalf("missing token file: exit %d %q, want %d", code, stderr, ExitNotLoggedIn)
+	}
+}
+
+func testCAPEM(t *testing.T, cn string) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: cn},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		IsCA: true, BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}
+
+func TestLoginLine(t *testing.T) {
+	p := &profile.Profile{Server: "s.postgres.database.azure.com", Port: 5432, Database: "postgres", SSLMode: "verify-full", User: "admin"}
+	want := "logging into server s.postgres.database.azure.com:5432 (database postgres, sslmode verify-full) as admin with a password (from $PGPASSWORD)"
+	if got := loginLine(p, "a password (from $PGPASSWORD)"); got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
 	}
 }
 
@@ -415,15 +526,16 @@ func TestPgPasswordSources(t *testing.T) {
 		want     string
 		wantErr  string
 	}{
-		{"default PGPASSWORD set", map[string]string{"PGPASSWORD": "pw"}, "PGPASSWORD", false, false, "pw", ""},
-		{"default unset, terminal: prompt", nil, "PGPASSWORD", false, true, "typed", ""},
+		{"default PGPASSWORD set", map[string]string{"PGPASSWORD": "pw"}, "PGPASSWORD", false, false, "pw|from $PGPASSWORD", ""},
+		{"default unset, terminal: prompt", nil, "PGPASSWORD", false, true, "typed|entered at the prompt", ""},
 		{"default unset, no terminal", nil, "PGPASSWORD", false, false, "", "set PGPASSWORD or pass --pg-pass-env-var"},
-		{"explicit variable set", map[string]string{"ADMIN_PW": "x"}, "ADMIN_PW", true, false, "x", ""},
+		{"explicit variable set", map[string]string{"ADMIN_PW": "x"}, "ADMIN_PW", true, false, "x|from $ADMIN_PW", ""},
 		{"explicit variable unset: error, no prompt", nil, "ADMIN_PW", true, true, "", "ADMIN_PW is not set"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := newApp(c.env, c.tty).readPassword(c.envVar, c.explicit)
+			pw, src, err := newApp(c.env, c.tty).readPassword(c.envVar, c.explicit)
+			got := pw + "|" + src
 			if c.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
 					t.Fatalf("err %v, want %q", err, c.wantErr)

@@ -261,11 +261,12 @@ param(
         if ($null -ne $gh) {
             $bundle = Join-Path $work 'attestation.sigstore.jsonl'
             if (Get-Asset "$releaseUrl/attestation.sigstore.jsonl" $bundle) {
-                Write-Status 'verifying build provenance with gh attestation verify'
-                & $gh.Path attestation verify $bin --repo $repo --bundle $bundle | Out-Host
+                # gh has no --quiet: with stdout not a terminal it prints nothing on success; errors still go to stderr.
+                & $gh.Path attestation verify $bin --repo $repo --bundle $bundle | Out-Null
                 if ($LASTEXITCODE -ne 0) {
                     throw "azpgaad: attestation verification FAILED for $asset - do not use this binary"
                 }
+                Write-Status 'attestation succeeded'
             }
             elseif ($RequireAttestation) {
                 throw 'azpgaad: -RequireAttestation: this release has no attestation.sigstore.jsonl'

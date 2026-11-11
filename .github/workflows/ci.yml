@@ -180,10 +180,11 @@ jobs:
           path: dist
       - name: Serve dist/ laid out like a GitHub release
         run: |
-          # download.sh always fetches the latest release; the raw-only release
-          # (404 fallback test) is served under a second base URL, <base>/rawonly.
-          mkdir --parents srv/latest/download srv/rawonly/latest/download
+          # Latest release, the same assets as a pinned release (--version), and a raw-only
+          # release (404 fallback test) under a second base URL, <base>/rawonly.
+          mkdir --parents srv/latest/download "srv/download/$CI_TAG" srv/rawonly/latest/download
           cp dist/* srv/latest/download/
+          cp dist/* "srv/download/$CI_TAG/"
           find dist -maxdepth 1 -name 'azpgaad-*' ! -name '*.xz' ! -name '*.br' ! -name '*.gz' \
             -exec cp {} srv/rawonly/latest/download/ \;
           nohup python3 -m http.server 8000 --bind 127.0.0.1 --directory srv > "$RUNNER_TEMP/server.log" 2>&1 &

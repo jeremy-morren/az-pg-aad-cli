@@ -61,9 +61,8 @@ exit /b 0
 exit /b 2
 
 :run
-rem Options travel as environment variables so the -Command string needs no nested
-rem quoting (which cmd.exe can't do reliably). TLS 1.2 is forced before the first
-rem request because older .NET Framework defaults can't reach GitHub.
+rem Options travel as environment variables so the -Command string needs no nested quoting (which cmd.exe can't do reliably). 
+rem TLS 1.2 is forced before the first request because older .NET Framework defaults can't reach GitHub.
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
   "${ErrorActionPreference} = 'Stop'; ${ProgressPreference} = 'SilentlyContinue';" ^
   "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12;" ^

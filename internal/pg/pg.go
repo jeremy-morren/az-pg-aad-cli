@@ -101,6 +101,25 @@ func Idents(names []string) string {
 	return strings.Join(q, ", ")
 }
 
+// Grantee is a role in a GRANT/REVOKE grantee list: PUBLIC (any case) is the keyword
+// meaning every role, anything else a quoted role name. (Ident("PUBLIC") would name a
+// role called "PUBLIC".)
+func Grantee(name string) string {
+	if strings.EqualFold(name, "public") {
+		return "PUBLIC"
+	}
+	return Ident(name)
+}
+
+// Grantees is Grantee for a comma-joined list.
+func Grantees(names []string) string {
+	q := make([]string, len(names))
+	for i, n := range names {
+		q[i] = Grantee(n)
+	}
+	return strings.Join(q, ", ")
+}
+
 // Literal quotes a string literal (for the few statements that can't take parameters).
 func Literal(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 

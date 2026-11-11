@@ -30,7 +30,7 @@ type privCmd struct {
 
 func (a *App) newPrivCmd(cmd *cobra.Command, allowed []string, withSchemas, grant bool) *privCmd {
 	p := &privCmd{}
-	p.names = a.addList(cmd, "name", "names", "grantee role name", true)
+	p.names = a.addList(cmd, "name", "names", "grantee role name (PUBLIC: every role)", true)
 	p.privs = a.addList(cmd, "privilege", "privileges", "privilege ("+strings.Join(allowed, ", ")+")", true)
 	if withSchemas {
 		p.schemas = a.addList(cmd, "schema", "schemas", "schema (default: every non-system schema)", false)
@@ -124,7 +124,7 @@ func (a *App) dbGrantCommand(grant bool) *cobra.Command {
 		}
 		var stmts []string
 		if len(names) > 0 && len(privs) > 0 {
-			stmts = []string{fmt.Sprintf("%s %s ON DATABASE %s %s %s", verb, strings.Join(privs, ", "), pg.Ident(p.database), prep, pg.Idents(names))}
+			stmts = []string{fmt.Sprintf("%s %s ON DATABASE %s %s %s", verb, strings.Join(privs, ", "), pg.Ident(p.database), prep, pg.Grantees(names))}
 		}
 		// Database privileges can be changed from any database; use the AAD one so no
 		// extra connection is opened.
@@ -156,7 +156,7 @@ func (a *App) schemaGrantCommand(grant bool) *cobra.Command {
 		}
 		var stmts []string
 		for _, s := range schemas {
-			stmts = append(stmts, fmt.Sprintf("%s %s ON SCHEMA %s %s %s", verb, strings.Join(privs, ", "), pg.Ident(s), prep, pg.Idents(names)))
+			stmts = append(stmts, fmt.Sprintf("%s %s ON SCHEMA %s %s %s", verb, strings.Join(privs, ", "), pg.Ident(s), prep, pg.Grantees(names)))
 		}
 		return a.execStatements(ctx, p.database, stmts, p.dryRun, p.skipped...)
 	}
@@ -196,7 +196,7 @@ func (a *App) tableGrantCommand(grant bool) *cobra.Command {
 			return err
 		}
 		head := fmt.Sprintf("%s %s ON", verb, strings.Join(privs, ", "))
-		tail := fmt.Sprintf("%s %s", prep, pg.Idents(names))
+		tail := fmt.Sprintf("%s %s", prep, pg.Grantees(names))
 		var stmts []string
 		if !named {
 			for _, s := range schemas {
@@ -301,7 +301,7 @@ objects (e.g. the application's role) with --for-role.`,
 		var stmts []string
 		for _, s := range schemas {
 			stmts = append(stmts, fmt.Sprintf("%s IN SCHEMA %s %s %s ON %s %s %s",
-				head, pg.Ident(s), verb, strings.Join(privs, ", "), strings.ToUpper(on), prep, pg.Idents(names)))
+				head, pg.Ident(s), verb, strings.Join(privs, ", "), strings.ToUpper(on), prep, pg.Grantees(names)))
 		}
 		return a.execStatements(ctx, p.database, stmts, p.dryRun, p.skipped...)
 	}
@@ -353,6 +353,11 @@ func (a *App) privilegesCommand() *cobra.Command {
 				return err
 			}
 			roles = append(roles, "public")
+		}
+		for i, r := range roles {
+			if strings.EqualFold(r, "public") {
+				roles[i] = "public" // has_*_privilege takes PUBLIC as lower-case public
+			}
 		}
 		roles = dedupe(roles)
 		switch level {

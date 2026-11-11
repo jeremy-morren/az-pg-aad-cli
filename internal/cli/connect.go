@@ -13,6 +13,42 @@ import (
 // aadDatabase is where the pgaadauth functions and security label provider live.
 const aadDatabase = "postgres"
 
+// Logging in without a token file: with PGAADSERVER set (and no --token-file or
+// PGAADTOKENFILE), every command gets its own Microsoft Entra token from
+// DefaultAzureCredential and writes nothing to disk.
+const (
+	envServer      = "PGAADSERVER"
+	envUser        = "PGAADUSER"
+	envDatabase    = "PGAADDATABASE"
+	envSSLMode     = "PGAADSSLMODE"
+	envSSLRootCert = "PGAADSSLROOTCERT"
+)
+
+// useEnvLogin reports whether connection settings come from the PGAAD* environment
+// variables: PGAADSERVER is set and no token file is named.
+func (a *App) useEnvLogin() bool {
+	return a.globals.tokenFile == "" && a.Getenv(profile.EnvVar) == "" && a.Getenv(envServer) != ""
+}
+
+// envProfile builds the connection settings from the environment (the token itself is
+// acquired separately, per command).
+func (a *App) envProfile() (*profile.Profile, error) {
+	or := func(k, def string) string {
+		if v := a.Getenv(k); v != "" {
+			return v
+		}
+		return def
+	}
+	p, err := a.newProfile("PGAAD", a.Getenv(envServer), 5432, or(envDatabase, "postgres"),
+		or(envSSLMode, "verify-full"), or(envSSLRootCert, "system"))
+	if err != nil {
+		return nil, err
+	}
+	p.User = a.Getenv(envUser)
+	p.Auth.Method = "azure"
+	return p, nil
+}
+
 // tokenPath resolves --token-file / $PGAADTOKENFILE.
 func (a *App) tokenPath() (string, error) {
 	p, err := profile.ResolvePath(a.globals.tokenFile, a.Getenv)
@@ -37,6 +73,18 @@ func (a *App) session(ctx context.Context, database string) (pg.Session, error) 
 }
 
 func (a *App) open(ctx context.Context) error {
+	if a.useEnvLogin() {
+		p, err := a.envProfile()
+		if err != nil {
+			return err
+		}
+		if err := a.loginAzure(ctx, p, a.Getenv(envUser)); err != nil {
+			return notLoggedIn(fmt.Errorf("%s is set but no Microsoft Entra token could be acquired: %w", envServer, err))
+		}
+		a.prof = p
+		a.db = a.openDB(p)
+		return nil
+	}
 	path, err := a.tokenPath()
 	if err != nil {
 		return err
@@ -53,7 +101,7 @@ func (a *App) open(ctx context.Context) error {
 		}
 		if err != nil {
 			return notLoggedIn(fmt.Errorf("token in %s expires at %s and could not be refreshed (%v): run azpgaad login again",
-				path, p.Auth.Expires.Format("2006-01-02T15:04:05Z07:00"), err))
+				path, formatTime(p.Auth.Expires), err))
 		}
 		p.Auth.Token, p.Auth.Expires = tok.Value, tok.Expires
 		if err := profile.Save(path, p); err != nil {
@@ -128,6 +176,12 @@ func (a *App) execStatements(ctx context.Context, database string, stmts []strin
 		res.Statements = []string{}
 	}
 	if dryRun || len(stmts) == 0 {
+		if dryRun && a.globals.echo && len(stmts) > 0 {
+			fmt.Fprintf(a.Stderr, "-- [%s] --dry-run: not run\n", database)
+			for _, st := range stmts {
+				pg.EchoStatement(a.Stderr, "", st)
+			}
+		}
 		return a.print(res)
 	}
 	s, err := a.session(ctx, database)
@@ -151,6 +205,9 @@ func (a *App) execStatements(ctx context.Context, database string, stmts []strin
 // openDB opens the database described by p, logging every statement with --debug.
 func (a *App) openDB(p *profile.Profile) pg.DB {
 	db := a.OpenDB(connConfig(p))
+	if a.globals.echo {
+		db = pg.NewEcho(db, a.Stderr)
+	}
 	if a.globals.debug {
 		db = pg.NewDebug(db, a.Stderr, fmt.Sprintf("%s@%s:%d sslmode=%s", p.User, p.Server, p.Port, p.SSLMode))
 	}

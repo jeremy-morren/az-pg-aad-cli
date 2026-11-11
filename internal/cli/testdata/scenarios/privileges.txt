@@ -24,6 +24,12 @@ schema grant --name azpgaad_test_entra --privilege USAGE --database azpgaad_test
 privileges list --names '["azpgaad_test_entra","azpgaad_test_app"]' --database postgres
 privileges list --names '["azpgaad_test_entra","azpgaad_test_app","public"]' --database azpgaad_test_db
 privileges list --name azpgaad_test_entra --level schema --database postgres
+
+# PUBLIC (every role, any case) as a grantee: take CONNECT away from it and give it back,
+# with the SQL echoed to stderr.
+db revoke --name PUBLIC --privilege CONNECT --database azpgaad_test_db --echo
+privileges list --name PUBLIC --database azpgaad_test_db
+db grant --name public --privilege CONNECT --database azpgaad_test_db
 role list --database azpgaad_test_db --query "[?starts_with(roleName, 'azpgaad_test_')].{roleName: roleName, dbPrivileges: dbPrivileges, entra: aad != null}"
 
 # Schema, table and default privileges in the scratch database.
@@ -49,8 +55,11 @@ owner reassign --database azpgaad_test_db --to azpgaad_test_owner
 # Revoke and clean up: drop fails while privileges remain; --if-exists skips missing roles.
 role drop --name azpgaad_test_app --yes
 role revoke --name azpgaad_test_app --role azpgaad_test_owner
+role grant --name azpgaad_test_app --roles '["pg_read_all_data","pg_write_all_data"]'
+role revoke-all --name azpgaad_test_app --database azpgaad_test_db --memberships --dry-run --query statements
 role revoke-all --names '["azpgaad_test_app","azpgaad_test_gone"]' --database azpgaad_test_db --yes
-role revoke-all --names '["azpgaad_test_app","azpgaad_test_entra","azpgaad_test_gone"]' --database azpgaad_test_db --yes --if-exists
+role revoke-all --names '["azpgaad_test_app","azpgaad_test_entra","azpgaad_test_gone"]' --database azpgaad_test_db --yes --if-exists --memberships
+role list --query "[?roleName=='azpgaad_test_app'].memberOf"
 role revoke-all --names '["azpgaad_test_app","azpgaad_test_entra"]' --database postgres --yes
 table revoke --names '["azpgaad_test_app","azpgaad_test_gone"]' --privilege ALL --database azpgaad_test_db --if-exists
 default-privileges revoke --name azpgaad_test_app --privilege SELECT --for-role azpgaad_test_owner --database azpgaad_test_db

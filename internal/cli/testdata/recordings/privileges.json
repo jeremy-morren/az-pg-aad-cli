@@ -401,6 +401,71 @@
   },
   {
     "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "REVOKE CONNECT ON DATABASE \"azpgaad_test_db\" FROM PUBLIC"
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select r.name as role, $1::text as database,\n  coalesce((select array_agg(p.p order by p.ord)\n            from unnest(array['CONNECT', 'CREATE', 'TEMPORARY']) with ordinality p(p, ord)\n            where has_database_privilege(r.name, $1::text, p.p)), '{}') as privileges\nfrom unnest($2::text[]) with ordinality r(name, ord)\norder by r.ord",
+    "args": [
+      "azpgaad_test_db",
+      [
+        "public"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "role",
+        "database",
+        "privileges"
+      ],
+      "rows": [
+        [
+          "public",
+          "azpgaad_test_db",
+          [
+            "TEMPORARY"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "GRANT CONNECT ON DATABASE \"azpgaad_test_db\" TO PUBLIC"
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
     "op": "query",
     "sql": "select r.rolname as rolename,\n  (select array_agg(m.rolname::text order by m.rolname)\n   from pg_auth_members am join pg_roles m on m.oid = am.roleid\n   where am.member = r.oid) as memberof,\n  case when $2::text is null then null else\n    (select array_agg(p.p order by p.ord)\n     from unnest(array['CONNECT', 'CREATE', 'TEMPORARY']) with ordinality p(p, ord)\n     where has_database_privilege(r.oid, $2::text, p.p)) end as dbprivileges,\n  a.rolname as aadname, a.principaltype as aadtype, a.objectid as aadobjectid,\n  a.tenantid as aadtenantid, a.isadmin = 1 as aadisadmin\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere $1::boolean or (not starts_with(r.rolname, 'pg_') and not starts_with(r.rolname, 'azure') and r.rolname <> 'replication')\norder by r.rolname",
     "args": [
@@ -1435,6 +1500,94 @@
     "op": "commit"
   },
   {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "begin"
+  },
+  {
+    "db": "postgres",
+    "op": "exec",
+    "sql": "GRANT \"pg_read_all_data\", \"pg_write_all_data\" TO \"azpgaad_test_app\""
+  },
+  {
+    "db": "postgres",
+    "op": "commit"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "connect"
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select n.nspname as name, pg_get_userbyid(n.nspowner) as owner\nfrom pg_namespace n\nwhere $1::boolean or (not starts_with(n.nspname, 'pg_') and n.nspname not in ('information_schema', 'cron'))\norder by n.nspname",
+    "args": [
+      false
+    ],
+    "result": {
+      "columns": [
+        "name",
+        "owner"
+      ],
+      "rows": [
+        [
+          "app",
+          "azpgaad_test_owner"
+        ],
+        [
+          "public",
+          "azure_pg_admin"
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select r.rolname as member,\n  array_agg(distinct m.rolname::text order by m.rolname::text) as roles\nfrom pg_auth_members am\njoin pg_roles m on m.oid = am.roleid\njoin pg_roles r on r.oid = am.member\nwhere r.rolname = any($1::text[])\n  and not starts_with(m.rolname, 'azure') and m.rolname <> 'replication'\ngroup by r.rolname\norder by r.rolname",
+    "args": [
+      [
+        "azpgaad_test_app"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "member",
+        "roles"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_app",
+          [
+            "pg_read_all_data",
+            "pg_write_all_data"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
+    "sql": "select has_database_privilege('public', $1::text, 'CONNECT')",
+    "args": [
+      "azpgaad_test_db"
+    ],
+    "result": {
+      "columns": [
+        "has_database_privilege"
+      ],
+      "rows": [
+        [
+          true
+        ]
+      ]
+    }
+  },
+  {
     "db": "azpgaad_test_db",
     "op": "connect"
   },
@@ -1557,6 +1710,32 @@
   {
     "db": "azpgaad_test_db",
     "op": "query",
+    "sql": "select r.rolname as member,\n  array_agg(distinct m.rolname::text order by m.rolname::text) as roles\nfrom pg_auth_members am\njoin pg_roles m on m.oid = am.roleid\njoin pg_roles r on r.oid = am.member\nwhere r.rolname = any($1::text[])\n  and not starts_with(m.rolname, 'azure') and m.rolname <> 'replication'\ngroup by r.rolname\norder by r.rolname",
+    "args": [
+      [
+        "azpgaad_test_app",
+        "azpgaad_test_entra"
+      ]
+    ],
+    "result": {
+      "columns": [
+        "member",
+        "roles"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_app",
+          [
+            "pg_read_all_data",
+            "pg_write_all_data"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "db": "azpgaad_test_db",
+    "op": "query",
     "sql": "select has_database_privilege('public', $1::text, 'CONNECT')",
     "args": [
       "azpgaad_test_db"
@@ -1593,7 +1772,84 @@
   },
   {
     "db": "azpgaad_test_db",
+    "op": "exec",
+    "sql": "REVOKE \"pg_read_all_data\", \"pg_write_all_data\" FROM \"azpgaad_test_app\""
+  },
+  {
+    "db": "azpgaad_test_db",
     "op": "commit"
+  },
+  {
+    "db": "postgres",
+    "op": "connect"
+  },
+  {
+    "db": "postgres",
+    "op": "query",
+    "sql": "select r.rolname as rolename,\n  (select array_agg(m.rolname::text order by m.rolname)\n   from pg_auth_members am join pg_roles m on m.oid = am.roleid\n   where am.member = r.oid) as memberof,\n  case when $2::text is null then null else\n    (select array_agg(p.p order by p.ord)\n     from unnest(array['CONNECT', 'CREATE', 'TEMPORARY']) with ordinality p(p, ord)\n     where has_database_privilege(r.oid, $2::text, p.p)) end as dbprivileges,\n  a.rolname as aadname, a.principaltype as aadtype, a.objectid as aadobjectid,\n  a.tenantid as aadtenantid, a.isadmin = 1 as aadisadmin\nfrom pg_roles r\nleft join pg_catalog.pgaadauth_list_principals(false) a on a.rolname = r.rolname\nwhere $1::boolean or (not starts_with(r.rolname, 'pg_') and not starts_with(r.rolname, 'azure') and r.rolname <> 'replication')\norder by r.rolname",
+    "args": [
+      false,
+      null
+    ],
+    "result": {
+      "columns": [
+        "rolename",
+        "memberof",
+        "dbprivileges",
+        "aadname",
+        "aadtype",
+        "aadobjectid",
+        "aadtenantid",
+        "aadisadmin"
+      ],
+      "rows": [
+        [
+          "azpgaad_test_app",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "azpgaad_test_entra",
+          null,
+          null,
+          "azpgaad_test_entra",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          false
+        ],
+        [
+          "azpgaad_test_owner",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        [
+          "user1@example.com",
+          [
+            "azpgaad_test_app",
+            "azpgaad_test_entra",
+            "azpgaad_test_owner",
+            "azure_pg_admin"
+          ],
+          null,
+          "user1@example.com",
+          "user",
+          "aaaaaaaa-0000-0000-0000-000000000001",
+          "ffffffff-0000-0000-0000-000000000001",
+          true
+        ]
+      ]
+    }
   },
   {
     "db": "postgres",

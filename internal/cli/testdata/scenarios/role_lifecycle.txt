@@ -5,6 +5,7 @@
 !sql postgres: drop role if exists azpgaad_test_user
 !sql postgres: drop role if exists azpgaad_test_b1
 !sql postgres: drop role if exists azpgaad_test_plain
+!sql postgres: drop role if exists azpgaad_test_plain2
 
 # The server rejects object IDs it can't find, malformed IDs and the wrong type (no
 # client-side validation needed); --dry-run gets the same checks and changes nothing.
@@ -22,6 +23,7 @@ role create --name azpgaad_test_user --oid ${AZPGAAD_TEST_USER_OID} --type user
 role create --name azpgaad_test_user --oid ${AZPGAAD_TEST_USER_OID} --type user --if-not-exists
 role create --name azpgaad_test_user --oid 00000000-0000-0000-0000-0000000000a2 --type user --if-not-exists
 principal list --query "[?name=='azpgaad_test_user'].{name: name, type: type, isAdmin: isAdmin, isMfa: isMfa}"
+principal list --include-builtin --query "[?starts_with(name, 'azpgaad_test_')].name"
 role list --query "[?roleName=='azpgaad_test_user'].{roleName: roleName, memberOf: memberOf, aadType: aad.type}"
 
 # A batch is one transaction: one bad object ID means nothing is created.
@@ -37,6 +39,21 @@ role enable-oid --name azpgaad_test_plain --oid ${AZPGAAD_TEST_USER_OID} --type 
 role enable-oid --name azpgaad_test_plain --oid ${AZPGAAD_TEST_USER_OID} --type user
 principal list --query "[?name=='azpgaad_test_plain'].{name: name, type: type}"
 
+# --on-conflict: an existing role with another object ID, or not an Entra role yet (as
+# for a managed identity recreated under the same name). skip only leaves matching roles;
+# relabel updates the mapping (the server validates the new object ID); recreate drops the
+# role and creates it again.
+!sql postgres: create role azpgaad_test_plain2 nologin
+role create --name azpgaad_test_plain2 --oid ${AZPGAAD_TEST_USER_OID} --type user
+role create --name azpgaad_test_plain2 --oid ${AZPGAAD_TEST_USER_OID} --type user --on-conflict skip
+role create --name azpgaad_test_plain2 --oid ${AZPGAAD_TEST_USER_OID} --type user --on-conflict relabel --dry-run
+role create --name azpgaad_test_plain2 --oid ${AZPGAAD_TEST_USER_OID} --type user --on-conflict recreate --echo
+principal list --query "[?name=='azpgaad_test_plain2'].{name: name, type: type}"
+role create --name azpgaad_test_plain2 --oid ${AZPGAAD_TEST_USER_OID} --type user --on-conflict relabel
+role create --name azpgaad_test_plain2 --oid 00000000-0000-0000-0000-000000000001 --type user --on-conflict relabel
+role create --name azpgaad_test_plain2 --oid ${AZPGAAD_TEST_USER_OID} --type user --on-conflict sometimes
+role drop --name azpgaad_test_plain2 --yes
+
 # Drop: by unknown object ID (error, then --if-exists), by names (atomic), then idempotent.
 role drop --oid 00000000-0000-0000-0000-0000000000ff --yes
 role drop --oid 00000000-0000-0000-0000-0000000000ff --if-exists --yes
@@ -47,3 +64,4 @@ principal list --query "[?starts_with(name, 'azpgaad_test_')].name"
 !sql postgres: drop role if exists azpgaad_test_user
 !sql postgres: drop role if exists azpgaad_test_b1
 !sql postgres: drop role if exists azpgaad_test_plain
+!sql postgres: drop role if exists azpgaad_test_plain2

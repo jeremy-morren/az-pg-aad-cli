@@ -88,6 +88,18 @@ from pg_catalog.pgaadauth_list_principals(false) t
 where lower(t.objectid) = any($1::text[])
 order by t.rolname`
 
+// $1: role names. Each one's role memberships, leaving out the Azure-managed roles
+// (azure*, e.g. azure_pg_admin for Entra admins, and replication).
+const sqlMembershipsOf = `select r.rolname as member,
+  array_agg(distinct m.rolname::text order by m.rolname::text) as roles
+from pg_auth_members am
+join pg_roles m on m.oid = am.roleid
+join pg_roles r on r.oid = am.member
+where r.rolname = any($1::text[])
+  and not starts_with(m.rolname, 'azure') and m.rolname <> 'replication'
+group by r.rolname
+order by r.rolname`
+
 // $1: database
 const sqlPublicConnect = `select has_database_privilege('public', $1::text, 'CONNECT')`
 
@@ -248,3 +260,14 @@ func checkType(flag, t string) error {
 func qualified(schema, name string) string {
 	return fmt.Sprintf("%s.%s", pg.Ident(schema), pg.Ident(name))
 }
+
+// $1: role names. Database privileges granted directly to each (not through PUBLIC or
+// membership), per database.
+const sqlDatabaseGrants = `select r.rolname as role, d.datname as database,
+  array_agg(distinct a.privilege_type order by a.privilege_type) as privileges
+from pg_database d
+cross join lateral aclexplode(d.datacl) a
+join pg_roles r on r.oid = a.grantee
+where r.rolname = any($1::text[]) and not d.datistemplate
+group by r.rolname, d.datname
+order by 1, 2`

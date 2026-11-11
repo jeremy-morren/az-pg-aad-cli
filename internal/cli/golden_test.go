@@ -141,6 +141,11 @@ func runScenario(t *testing.T, name, path string) {
 		if err != nil {
 			t.Fatalf("%s: %v", line, err)
 		}
+		// Golden files show JSON (the full result, nested values included) unless the
+		// scenario line picks a format itself; the default tsv is covered by unit tests.
+		if !hasOutputFlag(args) {
+			args = append(args, "--output", "json")
+		}
 		var stdout, stderr bytes.Buffer
 		app := testApp(&stdout, &stderr, tokenFile)
 		app.OpenDB = openDB
@@ -283,6 +288,15 @@ func testApp(stdout, stderr *bytes.Buffer, tokenFile string) *App {
 		a.Now = time.Now
 	}
 	return a
+}
+
+func hasOutputFlag(args []string) bool {
+	for _, a := range args {
+		if a == "-o" || a == "--output" || strings.HasPrefix(a, "--output=") || (strings.HasPrefix(a, "-o") && !strings.HasPrefix(a, "--")) {
+			return true
+		}
+	}
+	return false
 }
 
 // shellSplit splits a scenario line like a POSIX shell would for simple cases:

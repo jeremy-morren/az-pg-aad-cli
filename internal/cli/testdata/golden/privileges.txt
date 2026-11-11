@@ -33,7 +33,7 @@ exit 0
     {
       "name": "azpgaad_test_entra",
       "oid": "aaaaaaaa-0000-0000-0000-000000000001",
-      "created": true
+      "action": "created"
     }
   ]
 }
@@ -147,6 +147,46 @@ exit 0
     ]
   }
 ]
+
+$ azpgaad db revoke --name PUBLIC --privilege CONNECT --database azpgaad_test_db --echo
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": [
+    "REVOKE CONNECT ON DATABASE \"azpgaad_test_db\" FROM PUBLIC"
+  ]
+}
+--- stderr
+-- [postgres]
+BEGIN;
+REVOKE CONNECT ON DATABASE "azpgaad_test_db" FROM PUBLIC;
+COMMIT;
+
+$ azpgaad privileges list --name PUBLIC --database azpgaad_test_db
+exit 0
+--- stdout
+[
+  {
+    "role": "public",
+    "database": "azpgaad_test_db",
+    "privileges": [
+      "TEMPORARY"
+    ]
+  }
+]
+
+$ azpgaad db grant --name public --privilege CONNECT --database azpgaad_test_db
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": [
+    "GRANT CONNECT ON DATABASE \"azpgaad_test_db\" TO PUBLIC"
+  ]
+}
 
 $ azpgaad role list --database azpgaad_test_db --query "[?starts_with(roleName, 'azpgaad_test_')].{roleName: roleName, dbPrivileges: dbPrivileges, entra: aad != null}"
 exit 0
@@ -428,13 +468,36 @@ exit 0
   ]
 }
 
+$ azpgaad role grant --name azpgaad_test_app --roles '["pg_read_all_data","pg_write_all_data"]'
+exit 0
+--- stdout
+{
+  "dryRun": false,
+  "database": "postgres",
+  "statements": [
+    "GRANT \"pg_read_all_data\", \"pg_write_all_data\" TO \"azpgaad_test_app\""
+  ]
+}
+
+$ azpgaad role revoke-all --name azpgaad_test_app --database azpgaad_test_db --memberships --dry-run --query statements
+exit 0
+--- stdout
+[
+  "REVOKE ALL PRIVILEGES ON DATABASE \"azpgaad_test_db\" FROM \"azpgaad_test_app\"",
+  "REVOKE ALL ON SCHEMA \"app\" FROM \"azpgaad_test_app\"",
+  "REVOKE ALL ON SCHEMA \"public\" FROM \"azpgaad_test_app\"",
+  "REVOKE \"pg_read_all_data\", \"pg_write_all_data\" FROM \"azpgaad_test_app\""
+]
+--- stderr
+azpgaad: warning: PUBLIC has CONNECT on database azpgaad_test_db, so revoking CONNECT from individual roles does not stop them connecting (to change that: azpgaad db revoke --name PUBLIC --privilege CONNECT --database azpgaad_test_db)
+
 $ azpgaad role revoke-all --names '["azpgaad_test_app","azpgaad_test_gone"]' --database azpgaad_test_db --yes
 exit 1
 --- stderr
-azpgaad: warning: PUBLIC has CONNECT on database azpgaad_test_db, so revoking CONNECT from individual roles does not stop them connecting (REVOKE CONNECT ON DATABASE "azpgaad_test_db" FROM PUBLIC to change that)
+azpgaad: warning: PUBLIC has CONNECT on database azpgaad_test_db, so revoking CONNECT from individual roles does not stop them connecting (to change that: azpgaad db revoke --name PUBLIC --privilege CONNECT --database azpgaad_test_db)
 azpgaad: error: REVOKE ALL PRIVILEGES ON DATABASE "azpgaad_test_db" FROM "azpgaad_test_app", "azpgaad_test_gone": role "azpgaad_test_gone" does not exist (SQLSTATE 42704)
 
-$ azpgaad role revoke-all --names '["azpgaad_test_app","azpgaad_test_entra","azpgaad_test_gone"]' --database azpgaad_test_db --yes --if-exists
+$ azpgaad role revoke-all --names '["azpgaad_test_app","azpgaad_test_entra","azpgaad_test_gone"]' --database azpgaad_test_db --yes --if-exists --memberships
 exit 0
 --- stdout
 {
@@ -443,14 +506,20 @@ exit 0
   "statements": [
     "REVOKE ALL PRIVILEGES ON DATABASE \"azpgaad_test_db\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\"",
     "REVOKE ALL ON SCHEMA \"app\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\"",
-    "REVOKE ALL ON SCHEMA \"public\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\""
+    "REVOKE ALL ON SCHEMA \"public\" FROM \"azpgaad_test_app\", \"azpgaad_test_entra\"",
+    "REVOKE \"pg_read_all_data\", \"pg_write_all_data\" FROM \"azpgaad_test_app\""
   ],
   "skipped": [
     "role:azpgaad_test_gone"
   ]
 }
 --- stderr
-azpgaad: warning: PUBLIC has CONNECT on database azpgaad_test_db, so revoking CONNECT from individual roles does not stop them connecting (REVOKE CONNECT ON DATABASE "azpgaad_test_db" FROM PUBLIC to change that)
+azpgaad: warning: PUBLIC has CONNECT on database azpgaad_test_db, so revoking CONNECT from individual roles does not stop them connecting (to change that: azpgaad db revoke --name PUBLIC --privilege CONNECT --database azpgaad_test_db)
+
+$ azpgaad role list --query "[?roleName=='azpgaad_test_app'].memberOf"
+exit 0
+--- stdout
+[]
 
 $ azpgaad role revoke-all --names '["azpgaad_test_app","azpgaad_test_entra"]' --database postgres --yes
 exit 0
@@ -464,7 +533,7 @@ exit 0
   ]
 }
 --- stderr
-azpgaad: warning: PUBLIC has CONNECT on database postgres, so revoking CONNECT from individual roles does not stop them connecting (REVOKE CONNECT ON DATABASE "postgres" FROM PUBLIC to change that)
+azpgaad: warning: PUBLIC has CONNECT on database postgres, so revoking CONNECT from individual roles does not stop them connecting (to change that: azpgaad db revoke --name PUBLIC --privilege CONNECT --database postgres)
 
 $ azpgaad table revoke --names '["azpgaad_test_app","azpgaad_test_gone"]' --privilege ALL --database azpgaad_test_db --if-exists
 exit 0

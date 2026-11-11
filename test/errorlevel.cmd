@@ -29,7 +29,7 @@ if errorlevel 1 (
     echo ok: "if errorlevel 1" does not fire after success
 )
 
-rem 2. Capture --version and a --query/-o tsv value with for /f.
+rem 2. Capture --version and a --query/--output tsv value with for /f.
 set "VER="
 for /f "usebackq delims=" %%v in (`"%EXE%" --version`) do set "VER=%%v"
 if not defined VER (
@@ -52,7 +52,7 @@ for /f "usebackq delims=" %%v in (`"%EXE%" version --query version --output tsv`
 if "!TSV!"=="!VER!" (
     echo ok: for /f captured "version --query version --output tsv": !TSV!
 ) else (
-    echo FAIL: --query/-o tsv capture "!TSV!" differs from --version "!VER!"
+    echo FAIL: --query/--output tsv capture "!TSV!" differs from --version "!VER!"
     set FAILED=1
 )
 

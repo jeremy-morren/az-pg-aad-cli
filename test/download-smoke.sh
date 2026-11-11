@@ -9,9 +9,9 @@
 #
 # AZPGAAD_BASE_URL must point at a server laid out like GitHub releases:
 #   latest/download/<assets>            all variants (raw, .xz, .br, .gz)
+#   download/<AZPGAAD_TEST_VERSION>/<assets>  the same, as a pinned release (--version)
 #   rawonly/latest/download/<assets>    raw binaries only (exercises the 404 fallback)
-# (download.sh always fetches the latest release, so the raw-only and missing
-# cases use other base URLs: <base>/rawonly and <base>/missing.)
+# (The raw-only and missing cases use other base URLs: <base>/rawonly and <base>/missing.)
 # The binaries must report AZPGAAD_TEST_VERSION (default v0.0.0-ci) from --version.
 # Short options for coreutils and grep: BusyBox (Alpine) has no long forms for them.
 
@@ -112,12 +112,26 @@ check_bin "$work/t4/azpgaad"
 check_only "$work/t4" azpgaad
 ok "compressed asset 404 -> raw fallback"
 
-# 5. Failures leave nothing behind and exit non-zero.
+# 5. A pinned release (--version, both spellings).
+mkdir "$work/t5v"
+dl --version "$want" --output "$work/t5v/azpgaad" || fail "--version $want failed"
+grep -q "/download/$want/" "$log" || fail "expected the pinned-release URL"
+check_bin "$work/t5v/azpgaad"
+dl --version="$want" --output "$work/t5v/azpgaad" || fail "--version=$want failed"
+check_only "$work/t5v" azpgaad
+ok "--version $want"
+
+# 6. Failures leave nothing behind and exit non-zero.
 mkdir "$work/t5"
 if dl_at "$AZPGAAD_BASE_URL/missing" --output "$work/t5/azpgaad"; then fail "missing release succeeded"; fi
 grep -q 'not found' "$log" || fail "expected a 'not found' error"
 check_only "$work/t5" ''
-if dl --version v1.2.3; then fail "--version (removed option) was accepted"; fi
+if dl --version 1.2.3 --output "$work/t5/azpgaad"; then fail "--version without v was accepted"; fi
+grep -q 'invalid --version' "$log" || fail "expected an invalid --version error"
+if dl --version v0.0.0-missing --output "$work/t5/azpgaad"; then fail "missing pinned release succeeded"; fi
+grep -q 'not found' "$log" || fail "expected a 'not found' error for a missing --version"
+check_only "$work/t5" ''
+if dl --version; then fail "--version without a value succeeded"; fi
 if dl --bogus-flag; then fail "unknown flag succeeded"; fi
 if ! command -v gh >/dev/null 2>&1; then
 	if dl --output "$work/t5/azpgaad" --require-attestation; then fail "--require-attestation without gh succeeded"; fi

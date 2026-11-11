@@ -8,10 +8,12 @@
 #   --output PATH          where to write the binary (default: ./azpgaad, or
 #                          ./azpgaad.exe on Windows; an existing directory gets
 #                          that name inside it)
+#   --version vX.Y.Z       a specific release, to pin a version in pipelines
+#                          (default: the latest release)
 #   --require-attestation  fail unless the build-provenance attestation can be
 #                          verified (needs the GitHub CLI, gh, on PATH)
 #
-# Always the latest release. On Windows (Git Bash, MSYS2, Cygwin) the Windows
+# On Windows (Git Bash, MSYS2, Cygwin) the Windows
 # build is downloaded.
 #
 # The smallest variant this machine can decompress is fetched (.xz, then .br,
@@ -37,11 +39,12 @@ die() { say "error: ${*}"; exit 1; }
 
 usage() {
 	cat >&2 <<'EOF'
-usage: download.sh [--output PATH] [--require-attestation]
+usage: download.sh [--output PATH] [--version vX.Y.Z] [--require-attestation]
 EOF
 }
 
 output=""
+version=""
 require_attestation="false"
 
 while [ "${#}" -gt 0 ]; do
@@ -53,6 +56,15 @@ while [ "${#}" -gt 0 ]; do
 			;;
 		--output=*)
 			output="${1#*=}"
+			shift
+			;;
+		--version)
+			[ "${#}" -ge 2 ] || die "${1} needs a value"
+			version="${2}"
+			shift 2
+			;;
+		--version=*)
+			version="${1#*=}"
 			shift
 			;;
 		--require-attestation)
@@ -69,6 +81,17 @@ while [ "${#}" -gt 0 ]; do
 			;;
 	esac
 done
+
+if [ -n "${version}" ]; then
+	# Same rule as download.ps1: v, a digit, then anything but / and whitespace.
+	case "${version}" in
+		v[0-9]*) ;;
+		*) die "invalid --version '${version}' (expected vX.Y.Z)" ;;
+	esac
+	case "${version}" in
+		*/* | *[[:space:]]*) die "invalid --version '${version}' (expected vX.Y.Z)" ;;
+	esac
+fi
 
 output_given="false"
 if [ -n "${output}" ]; then output_given="true"; fi
@@ -110,7 +133,11 @@ fi
 exe=""
 if [ "${os}" = "windows" ]; then exe=".exe"; fi
 asset="azpgaad-${os}-${arch}${exe}"
-release_url="${BASE_URL}/latest/download"
+if [ -n "${version}" ]; then
+	release_url="${BASE_URL}/download/${version}"
+else
+	release_url="${BASE_URL}/latest/download"
+fi
 
 # --- output path and temp dir -------------------------------------------------
 if [ "${output_given}" = "false" ]; then
@@ -198,9 +225,10 @@ if command -v gh >/dev/null 2>&1; then
 	rc=0
 	fetch "${release_url}/attestation.sigstore.jsonl" "${bundle}" || rc="${?}"
 	if [ "${rc}" -eq 0 ]; then
-		say "verifying build provenance with gh attestation verify"
-		gh attestation verify "${bin}" --repo "${REPO}" --bundle "${bundle}" >&2 ||
+		# gh has no --quiet: with stdout not a terminal it prints nothing on success; errors still go to stderr.
+		gh attestation verify "${bin}" --repo "${REPO}" --bundle "${bundle}" >/dev/null ||
 			die "attestation verification FAILED for ${asset} - do not use this binary"
+		say "attestation succeeded"
 	elif [ "${require_attestation}" = "true" ]; then
 		die "--require-attestation: this release has no attestation.sigstore.jsonl"
 	else

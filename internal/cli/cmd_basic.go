@@ -3,12 +3,12 @@ package cli
 import (
 	"context"
 	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"runtime"
 	"runtime/debug"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -75,42 +75,25 @@ func (a *App) loginCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !contains(pg.ValidSSLModes, sslmode) {
-				return usageErrorf("--sslmode must be one of %s", strings.Join(pg.ValidSSLModes, ", "))
+			p, err := a.newProfile("--", server, port, database, sslmode, rootcert)
+			if err != nil {
+				return err
 			}
-			switch sslmode {
-			case "disable", "allow", "prefer":
-				a.warn(fmt.Sprintf("--sslmode %s may send the password/token unencrypted", sslmode))
-			}
-			root := profile.RootCert{Mode: "system"}
-			if rootcert != "" && rootcert != "system" {
-				pemBytes, err := os.ReadFile(rootcert)
-				if err != nil {
-					return usageErrorf("--sslrootcert: %v", err)
-				}
-				if !x509.NewCertPool().AppendCertsFromPEM(pemBytes) {
-					return usageErrorf("--sslrootcert: no PEM certificates found in %s", rootcert)
-				}
-				root = profile.RootCert{Mode: "pem", PEM: string(pemBytes)}
-			}
-			if !strings.Contains(server, ".") {
-				server += ".postgres.database.azure.com"
-			}
-			p := &profile.Profile{
-				V: profile.Version, Server: server, Port: port, Database: database,
-				SSLMode: sslmode, SSLRootCert: root,
-			}
+			var how string
 			if useAzure {
 				if err := a.loginAzure(ctx, p, username); err != nil {
 					return err
 				}
+				how = "a Microsoft Entra token (DefaultAzureCredential)"
 			} else {
-				pw, err := a.readPassword(pgPassEnv, cmd.Flags().Changed("pg-pass-env-var"))
+				pw, src, err := a.readPassword(pgPassEnv, cmd.Flags().Changed("pg-pass-env-var"))
 				if err != nil {
 					return err
 				}
 				p.User, p.Auth = pgUser, profile.Auth{Method: "pg", Password: pw}
+				how = "a password (" + src + ")"
 			}
+			a.info(loginLine(p, how))
 
 			db := a.openDB(p)
 			defer db.Close()
@@ -128,23 +111,40 @@ func (a *App) loginCommand() *cobra.Command {
 			if err := profile.Save(path, p); err != nil {
 				return err
 			}
-			out := struct {
-				TokenFile   string     `json:"tokenFile"`
-				Server      string     `json:"server"`
-				Database    string     `json:"database"`
-				User        string     `json:"user"`
-				Method      string     `json:"method"`
-				SSLMode     string     `json:"sslmode"`
-				SSLRootCert string     `json:"sslrootcert"`
-				Expires     *time.Time `json:"expires"`
-				Version     string     `json:"serverVersion"`
-			}{path, p.Server, p.Database, check.CurrentUser, p.Auth.Method, p.SSLMode, root.Mode, nil, check.Version}
-			if p.Auth.Method == "azure" {
-				out.Expires = &p.Auth.Expires
-			}
+			out := newLoginInfo(path, p)
+			out.User, out.ServerVersion = check.CurrentUser, check.Version
 			return a.print(out)
 		},
 	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "show",
+		Short: "Show the connection settings in the token file (never the token or password)",
+		Long: `Reads the token file named by --token-file or $PGAADTOKENFILE and shows what the
+other commands will use (or, without a token file, the PGAAD* environment variables;
+see azpgaad --help): server, port, database, user, authentication method, sslmode,
+trusted CAs (sslrootcert: 'system' for the machine's trust store, or 'embedded' for a PEM
+file copied in at login, with the certificate subjects), and for --azure the token's
+expiry. Nothing is refreshed and the server isn't contacted.`,
+		Args: cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			if a.useEnvLogin() {
+				p, err := a.envProfile()
+				if err != nil {
+					return err
+				}
+				return a.print(newLoginInfo("", p))
+			}
+			path, err := a.tokenPath()
+			if err != nil {
+				return err
+			}
+			p, err := profile.Load(path)
+			if err != nil {
+				return notLoggedIn(err)
+			}
+			return a.print(newLoginInfo(path, p))
+		},
+	})
 	f := cmd.Flags()
 	f.StringVar(&server, "server", "", "server name (expanded to <name>.postgres.database.azure.com) or fully qualified host name")
 	f.IntVar(&port, "port", 5432, "port")
@@ -161,6 +161,46 @@ func (a *App) loginCommand() *cobra.Command {
 	cmd.MarkFlagsMutuallyExclusive("username", "pg-username")
 	cmd.MarkFlagsMutuallyExclusive("pg-pass-env-var", "azure")
 	return cmd
+}
+
+// newProfile checks and normalizes the connection settings shared by login and the
+// PGAADSERVER environment variables. flagPrefix names the settings in errors ("--" for
+// login's flags, "PGAAD" for the environment variables).
+func (a *App) newProfile(flagPrefix, server string, port int, database, sslmode, rootcert string) (*profile.Profile, error) {
+	name := func(s string) string {
+		if flagPrefix == "--" {
+			return "--" + s
+		}
+		return flagPrefix + strings.ToUpper(s)
+	}
+	if server == "" {
+		return nil, usageErrorf("%s is required", name("server"))
+	}
+	if !contains(pg.ValidSSLModes, sslmode) {
+		return nil, usageErrorf("%s must be one of %s", name("sslmode"), strings.Join(pg.ValidSSLModes, ", "))
+	}
+	switch sslmode {
+	case "disable", "allow", "prefer":
+		a.warn(fmt.Sprintf("%s %s may send the password/token unencrypted", name("sslmode"), sslmode))
+	}
+	root := profile.RootCert{Mode: "system"}
+	if rootcert != "" && rootcert != "system" {
+		pemBytes, err := os.ReadFile(rootcert)
+		if err != nil {
+			return nil, usageErrorf("%s: %v", name("sslrootcert"), err)
+		}
+		if !x509.NewCertPool().AppendCertsFromPEM(pemBytes) {
+			return nil, usageErrorf("%s: no PEM certificates found in %s", name("sslrootcert"), rootcert)
+		}
+		root = profile.RootCert{Mode: "pem", PEM: string(pemBytes)}
+	}
+	if !strings.Contains(server, ".") {
+		server += ".postgres.database.azure.com"
+	}
+	return &profile.Profile{
+		V: profile.Version, Server: server, Port: port, Database: database,
+		SSLMode: sslmode, SSLRootCert: root,
+	}, nil
 }
 
 func (a *App) loginAzure(ctx context.Context, p *profile.Profile, username string) error {
@@ -183,23 +223,76 @@ func (a *App) loginAzure(ctx context.Context, p *profile.Profile, username strin
 	return nil
 }
 
-// readPassword returns the password for --pg-username: the value of envVar (default
-// PGPASSWORD) if set; otherwise a prompt, unless the variable was named explicitly (then
-// it must be set) or there is no terminal to prompt on.
-func (a *App) readPassword(envVar string, explicit bool) (string, error) {
+// loginInfo describes a token file, for login and login show. It never includes the
+// token or password.
+type loginInfo struct {
+	Source              string   `json:"source"`
+	TokenFile           string   `json:"tokenFile,omitempty"`
+	Server              string   `json:"server"`
+	Port                int      `json:"port"`
+	Database            string   `json:"database"`
+	User                string   `json:"user"`
+	Method              string   `json:"method"`
+	SSLMode             string   `json:"sslmode"`
+	SSLRootCert         string   `json:"sslrootcert"`
+	SSLRootCertSubjects []string `json:"sslrootcertSubjects,omitempty"`
+	Expires             string   `json:"expires,omitempty"`
+	ServerVersion       string   `json:"serverVersion,omitempty"`
+}
+
+func newLoginInfo(path string, p *profile.Profile) loginInfo {
+	source := "token file"
+	if path == "" {
+		source = "environment (" + envServer + ")"
+	}
+	info := loginInfo{
+		Source: source, TokenFile: path, Server: p.Server, Port: p.Port, Database: p.Database, User: p.User,
+		Method: p.Auth.Method, SSLMode: p.SSLMode, SSLRootCert: "system",
+	}
+	if p.SSLRootCert.Mode == "pem" {
+		info.SSLRootCert = "embedded"
+		rest := []byte(p.SSLRootCert.PEM)
+		for {
+			var block *pem.Block
+			if block, rest = pem.Decode(rest); block == nil {
+				break
+			}
+			if c, err := x509.ParseCertificate(block.Bytes); err == nil {
+				info.SSLRootCertSubjects = append(info.SSLRootCertSubjects, c.Subject.String())
+			}
+		}
+	}
+	if p.Auth.Method == "azure" {
+		info.Expires = formatTime(p.Auth.Expires)
+	}
+	return info
+}
+
+// loginLine is the status line login prints before connecting, e.g.
+// "logging into server s.postgres.database.azure.com:5432 (database postgres, sslmode
+// verify-full) as alice@contoso.com with a Microsoft Entra token (DefaultAzureCredential)".
+func loginLine(p *profile.Profile, how string) string {
+	return fmt.Sprintf("logging into server %s:%d (database %s, sslmode %s) as %s with %s",
+		p.Server, p.Port, p.Database, p.SSLMode, p.User, how)
+}
+
+// readPassword returns the password for --pg-username and where it came from: the value
+// of envVar (default PGPASSWORD) if set; otherwise a prompt, unless the variable was named
+// explicitly (then it must be set) or there is no terminal to prompt on.
+func (a *App) readPassword(envVar string, explicit bool) (pw, source string, err error) {
 	if v := a.Getenv(envVar); v != "" {
-		return v, nil
+		return v, "from $" + envVar, nil
 	}
 	if explicit {
-		return "", usageErrorf("--pg-pass-env-var: environment variable %s is not set or empty", envVar)
+		return "", "", usageErrorf("--pg-pass-env-var: environment variable %s is not set or empty", envVar)
 	}
 	if !a.StdinIsTerminal() {
-		return "", usageErrorf("no password: set %s or pass --pg-pass-env-var (there is no terminal to prompt on)", envVar)
+		return "", "", usageErrorf("no password: set %s or pass --pg-pass-env-var (there is no terminal to prompt on)", envVar)
 	}
 	fmt.Fprint(a.Stderr, "Password: ")
-	pw, err := a.ReadPassword()
+	pw, err = a.ReadPassword()
 	fmt.Fprintln(a.Stderr)
-	return pw, err
+	return pw, "entered at the prompt", err
 }
 
 func (a *App) serverCommand() *cobra.Command {
@@ -350,10 +443,14 @@ func (a *App) principalCommand() *cobra.Command {
 
 --exclude-self and --exclude-name/--exclude-names leave principals out, e.g. to find roles
 that aren't in a desired list (JMESPath --query has no set difference).
+Built-in principals (names starting with ` + builtinPrefix + `) are left out
+unless --include-builtin.
 ` + docsSeeAlso,
 		Args: cobra.NoArgs,
 	}
 	exclude := a.addList(list, "exclude-name", "exclude-names", "principal name to leave out", false)
+	var includeBuiltin bool
+	list.Flags().BoolVar(&includeBuiltin, "include-builtin", false, "include built-in principals (names starting with "+builtinPrefix+")")
 	list.Flags().BoolVar(&excludeSelf, "exclude-self", false, "leave out the logged-in user")
 	list.RunE = func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
@@ -379,10 +476,31 @@ that aren't in a desired list (JMESPath --query has no set difference).
 		if err := queryInto(ctx, s, &out, sqlPrincipals, excludeSelf, names); err != nil {
 			return err
 		}
-		return a.print(out)
+		kept := out[:0]
+		for _, p := range out {
+			if includeBuiltin || !isBuiltinPrincipal(p.Name) {
+				kept = append(kept, p)
+			}
+		}
+		return a.print(kept)
 	}
 	cmd.AddCommand(list)
 	return cmd
+}
+
+// builtinPrefix marks built-in Entra principals (by name; Microsoft doesn't document them). principal list hides
+// them by default and apply never prunes them.
+const builtinPrefix = "aad_"
+
+func isBuiltinPrincipal(name string) bool { return strings.HasPrefix(name, builtinPrefix) }
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if p != "" && strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func contains(list []string, v string) bool {

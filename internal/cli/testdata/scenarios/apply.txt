@@ -1,0 +1,50 @@
+# apply: the desired state for Entra principals, their memberships and database privileges,
+# made in one transaction and printed as a diff. Every --prune run is limited to
+# azpgaad_test_* principals (--managed-prefix), so recording can't touch other principals.
+!sql postgres: drop database if exists azpgaad_test_applydb with (force)
+!sql postgres: drop role if exists azpgaad_test_ap1
+!sql postgres: drop role if exists azpgaad_test_ap2
+!sql postgres: drop role if exists azpgaad_test_ap3
+!sql postgres: create database azpgaad_test_applydb
+!sql postgres: create role azpgaad_test_ap3 nologin
+
+# Bad specs and flags are usage errors (nothing is read or changed).
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","rolez":[]}]}'
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","databases":{"azpgaad_test_applydb":["SELECT"]}}]}'
+apply --spec '{"principals":[]}' --prune sometimes
+
+# --dry-run makes the changes and rolls back, so the server checks them: an unknown object
+# ID, a missing role and a missing database fail; nothing is created.
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"00000000-0000-0000-0000-000000000001","type":"user"}]}' --dry-run
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","roles":["azpgaad_test_nope"]}]}' --dry-run
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","databases":{"azpgaad_test_nodb":["CONNECT"]}}]}' --dry-run
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","roles":["pg_read_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT","TEMP"]}},{"name":"azpgaad_test_ap2","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","roles":["pg_read_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}}]}' --dry-run
+principal list --query "[?starts_with(name, 'azpgaad_test_')].name"
+
+# Apply (with the SQL echoed), then again: nothing left to do.
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","roles":["pg_read_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT","TEMP"]}},{"name":"azpgaad_test_ap2","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","roles":["pg_read_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}}]}' --echo
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","roles":["pg_read_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT","TEMP"]}},{"name":"azpgaad_test_ap2","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","roles":["pg_read_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}}]}'
+role list --database azpgaad_test_applydb --query "[?starts_with(roleName, 'azpgaad_test_')].{roleName: roleName, memberOf: memberOf, dbPrivileges: dbPrivileges}"
+
+# A new desired state. ap3 exists but isn't an Entra role: an error unless --on-conflict.
+# Without --prune only additions are made.
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","roles":["pg_write_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}},{"name":"azpgaad_test_ap3","oid":"${AZPGAAD_TEST_USER_OID}","type":"user"}]}'
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","roles":["pg_write_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}},{"name":"azpgaad_test_ap3","oid":"${AZPGAAD_TEST_USER_OID}","type":"user"}]}' --on-conflict relabel
+principal list --query "[?starts_with(name, 'azpgaad_test_')].name"
+
+# --prune revoke takes away what's no longer listed: from ap1, and everything from ap2,
+# which the spec no longer mentions. It needs --yes (no terminal here) unless --dry-run.
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","roles":["pg_write_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}},{"name":"azpgaad_test_ap3","oid":"${AZPGAAD_TEST_USER_OID}","type":"user"}]}' --prune revoke --managed-prefix azpgaad_test_
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","roles":["pg_write_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}},{"name":"azpgaad_test_ap3","oid":"${AZPGAAD_TEST_USER_OID}","type":"user"}]}' --prune revoke --managed-prefix azpgaad_test_ --dry-run
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","roles":["pg_write_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}},{"name":"azpgaad_test_ap3","oid":"${AZPGAAD_TEST_USER_OID}","type":"user"}]}' --prune revoke --managed-prefix azpgaad_test_ --yes
+role list --database azpgaad_test_applydb --query "[?starts_with(roleName, 'azpgaad_test_')].{roleName: roleName, memberOf: memberOf, dbPrivileges: dbPrivileges}"
+
+# --prune drop drops ap2; an empty spec then drops ap1 and ap3 (database privileges are
+# revoked first so the drop can succeed).
+apply --spec '{"principals":[{"name":"azpgaad_test_ap1","oid":"${AZPGAAD_TEST_USER_OID}","type":"user","roles":["pg_write_all_data"],"databases":{"azpgaad_test_applydb":["CONNECT"]}},{"name":"azpgaad_test_ap3","oid":"${AZPGAAD_TEST_USER_OID}","type":"user"}]}' --prune drop --managed-prefix azpgaad_test_ --yes
+apply --spec '{"principals":[]}' --prune drop --managed-prefix azpgaad_test_ --yes
+principal list --query "[?starts_with(name, 'azpgaad_test_')].name"
+!sql postgres: drop database if exists azpgaad_test_applydb with (force)
+!sql postgres: drop role if exists azpgaad_test_ap1
+!sql postgres: drop role if exists azpgaad_test_ap2
+!sql postgres: drop role if exists azpgaad_test_ap3
