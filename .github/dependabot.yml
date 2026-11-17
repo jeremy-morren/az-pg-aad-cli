@@ -1,7 +1,6 @@
-# Dependabot version updates, configured but paused: open-pull-requests-limit: 0 stops
-# version-update PRs (Dependabot has no on/off switch in this file). To turn an ecosystem
-# on, raise its limit, e.g. to 5. Security alerts/updates are controlled separately in
-# the repository settings (Code security), not by this file.
+# Dependabot version updates. To pause an ecosystem, set its open-pull-requests-limit to 0
+# (Dependabot has no on/off switch in this file). Security alerts/updates are controlled
+# separately in the repository settings (Code security), not by this file.
 version: 2
 updates:
   # The CLI's own modules (go.mod at the root). One PR per dependency (no groups).
@@ -9,7 +8,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 0 # paused
+    open-pull-requests-limit: 5
 
   # GoReleaser, pinned as a tool in tools/go.mod (separate module). Only the tool itself
   # is tracked, so this is a single PR per GoReleaser release; its 300+ indirect
@@ -18,7 +17,7 @@ updates:
     directory: /tools
     schedule:
       interval: monthly
-    open-pull-requests-limit: 0 # paused
+    open-pull-requests-limit: 5
     allow:
       - dependency-name: github.com/goreleaser/goreleaser/v2
 
@@ -27,4 +26,4 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 0 # paused
+    open-pull-requests-limit: 5
